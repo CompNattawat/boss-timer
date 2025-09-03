@@ -1,26 +1,26 @@
 // src/scheduler/queues.ts
 import { Queue, JobsOptions } from 'bullmq';
+import dns from 'node:dns';
 import pkg from 'ioredis';
+import { ENV } from '../lib/env.js';
 const IORedis = (pkg as any).default ?? pkg;
 
-const host = process.env.REDIS_HOST_OVERRIDE || process.env.REDISHOST || 'redis';
-const port = process.env.REDISPORT || '6379';
-const user = process.env.REDISUSER || 'default';
-const pass = process.env.REDISPASSWORD || '';
+// รองรับทั้ง ESM/CJS ของ ioredis
+const dnsLookupV6: any = (hostname: string, _opts: any, cb: any) => {
+  dns.lookup(hostname, { family: 6 }, cb);
+};
 
-const redisUrl =
-  process.env.REDIS_URL /* เผื่อไว้ ถ้ามีค่าเป็น public/proxy */
-  || `redis://${user}:${pass}@${host}:${port}`;
-
-console.log('Redis target:', redisUrl.replace(/\/\/.*@/, '//****@'));
-
-export const connection = new IORedis(redisUrl, {
+export const connection = new IORedis(ENV.REDIS_URL, {
   maxRetriesPerRequest: null,
-  tls: redisUrl.startsWith('rediss://') ? {} : undefined,
+  tls: ENV.REDIS_URL.startsWith('rediss://') ? {} : undefined,
+  dnsLookup: dnsLookupV6,   // 👈 เพิ่มบรรทัดนี้
 });
 
 export const alertQueue = new Queue('alert', { connection });
 export const spawnQueue = new Queue('spawn', { connection });
+
+export type AlertJobData = { bossId: string; bossName: string; nextSpawnISO: string };
+export type SpawnJobData = AlertJobData;
 
 export const defaultJobOpts: JobsOptions = {
   removeOnComplete: 1000,
