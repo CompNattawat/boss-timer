@@ -5,7 +5,7 @@ import tz from 'dayjs/plugin/timezone.js';
 dayjs.extend(utc); dayjs.extend(tz);
 
 import { Worker } from 'bullmq';
-import { connection } from './queues.js';
+import { redis } from './queues.js';
 import { prisma } from '../lib/prisma.js';
 import { ENV } from '../lib/env.js';
 import cronParser from 'cron-parser';
@@ -17,6 +17,7 @@ import { TextChannel } from 'discord.js';
 client.login(ENV.DISCORD_TOKEN).then(() =>
   console.log('Worker Discord client logged in')
 );
+
 
 // Process alert jobs
 new Worker(
@@ -36,7 +37,7 @@ new Worker(
         .format('DD/MM/YY HH:mm')})`
     );
   },
-  { connection }
+  { connection: redis }
 );
 
 // Process spawn jobs
@@ -62,7 +63,7 @@ new Worker(
     });
     await updateScheduleMessage();
   },
-  { connection }
+  { connection: redis }
 );
 
 async function tickFixed() {
