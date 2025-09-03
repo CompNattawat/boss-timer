@@ -1,0 +1,71 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+
+model Game {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  bosses    Boss[]
+  guilds    Guild[]
+  createdAt DateTime @default(now())
+}
+
+model Guild {
+  id                 String   @id @default(cuid())
+  platform           String
+  externalId         String
+  game               Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId             String
+  scheduleChannelId  String?
+  scheduleMessageId  String?
+  createdAt          DateTime @default(now())
+
+  @@unique([platform, externalId])
+}
+
+model Boss {
+  id           String   @id @default(cuid())
+  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId       String
+  name         String
+  alias        String[] @default([])
+  respawnHours Int      @default(0)
+  lastDeathAt  DateTime?
+  nextSpawnAt  DateTime?
+  updatedAt    DateTime @updatedAt
+
+  @@unique([gameId, name])
+  @@index([nextSpawnAt])
+}
+
+model JobLog {
+  id         String   @id @default(cuid())
+  boss       Boss     @relation(fields: [bossId], references: [id], onDelete: Cascade)
+  bossId     String
+  type       String
+  runAt      DateTime
+  queueJobId String?
+  status     String
+  createdAt  DateTime @default(now())
+
+  @@index([status, runAt])
+}
+
+model FixedRule {
+  id             String   @id @default(cuid())
+  game           Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId         String
+  boss           Boss     @relation(fields: [bossId], references: [id], onDelete: Cascade)
+  bossId         String
+
+  cron           String
+  tz             String   @default("Asia/Bangkok")
+  enabled        Boolean  @default(true)
+  nextPreparedAt DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([gameId, bossId])
+  @@unique([bossId, cron, tz])
+}
