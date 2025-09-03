@@ -30,4 +30,4 @@ npm run register ``
 
 ## Notes
 	•	แจ้งเตือนก่อนเกิด 10 นาที + ตอนเกิดจริง
-	•	Fixed-time ใช้ DB (FixedRule) จัดการด้วยคำสั่ง /fix ได้เลย
+	•	Fixed-time ใช้ DB (FixedRule) จัดการด้วยคำสั่ง /fix ได้เลย# boss-timer
