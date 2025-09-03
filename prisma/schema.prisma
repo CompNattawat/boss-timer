@@ -8,12 +8,13 @@ datasource db {
 }
 
 model Game {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  bosses    Boss[]
-  guilds    Guild[]
-  createdAt DateTime @default(now())
+  id          String      @id @default(cuid())
+  code        String      @unique
+  name        String
+  bosses      Boss[]
+  guilds      Guild[]
+  fixedRules  FixedRule[]        // ⬅️ ฝั่งตรงข้ามของ FixedRule.game
+  createdAt   DateTime    @default(now())
 }
 
 model Guild {
@@ -30,15 +31,18 @@ model Guild {
 }
 
 model Boss {
-  id           String   @id @default(cuid())
-  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  id           String       @id @default(cuid())
+  game         Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
   gameId       String
   name         String
-  alias        String[] @default([])
-  respawnHours Int      @default(0)
+  alias        String[]     @default([])
+  respawnHours Int          @default(0)
   lastDeathAt  DateTime?
   nextSpawnAt  DateTime?
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime     @updatedAt
+
+  jobLogs     JobLog[]            // ⬅️ ฝั่งตรงข้ามของ JobLog.boss
+  fixedRules  FixedRule[]         // ⬅️ ฝั่งตรงข้ามของ FixedRule.boss
 
   @@unique([gameId, name])
   @@index([nextSpawnAt])
