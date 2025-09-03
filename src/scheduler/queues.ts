@@ -5,11 +5,13 @@ import { ENV } from '../lib/env.js';
 
 // รองรับทั้ง ESM/CJS ของ ioredis
 const IORedis = (pkg as any).default ?? pkg;
+const url = ENV.REDIS_URL;
+console.log('REDIS_URL =', url);
 
 // ✅ export ออกไปใช้ที่อื่นได้
-export const connection = new IORedis(ENV.REDIS_URL, {
+export const connection = new IORedis(url, {
   maxRetriesPerRequest: null,
-  tls: ENV.REDIS_URL.startsWith("rediss://") ? {} : undefined,
+  tls: url.startsWith("rediss://") ? {} : undefined,
 });
 
 export const alertQueue = new Queue('alert', { connection });
