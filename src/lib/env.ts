@@ -16,6 +16,7 @@ export const ENV = {
 
   // Redis (ใช้ URL เดียวที่ Railway generate ให้)
   REDIS_URL: required('REDIS_URL'),
+  REDISPASSWORD: required('REDISPASSWORD'),
 
   // Discord
   DISCORD_TOKEN: required('DISCORD_TOKEN'),

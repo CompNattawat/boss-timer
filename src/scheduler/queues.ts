@@ -1,13 +1,16 @@
 // src/scheduler/queues.ts
-import { Queue, JobsOptions, QueueOptions } from 'bullmq';
+import { Queue, JobsOptions } from 'bullmq';
 import pkg from 'ioredis';
 import { ENV } from '../lib/env.js';
 
 const IORedis = (pkg as any).default ?? pkg;
 
-export const redis = new IORedis(ENV.REDIS_URL, {
+export const redis = new IORedis({
+  host: 'redis',           // <— ชื่อ service
+  port: 6379,
+  username: 'default',
+  password: ENV.REDISPASSWORD!, // อ้างจาก Redis service reference ก็ได้
   maxRetriesPerRequest: null,
-  tls: ENV.REDIS_URL.startsWith('rediss://') ? {} : undefined,
 });
 
 export const alertQueue = new Queue('alert', { connection: redis });
