@@ -1,8 +1,7 @@
-import 'dotenv/config';
-import { client } from './lib/client';
-import { ENV } from './lib/env';
-import { data as bossData, execute as bossExecute } from './commands/boss';
-import { data as fixData, execute as fixExecute } from './commands/fix';
+import { client } from './lib/client.js';
+import { ENV } from './lib/env.js';
+import { data as bossData, execute as bossExecute } from './commands/boss.js';
+import { data as fixData, execute as fixExecute } from './commands/fix.js';
 
 client.on('ready', () => {
   console.log(`Bot logged in as ${client.user?.tag}`);

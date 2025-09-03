@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
-import { alertQueue, spawnQueue, defaultJobOpts } from '../scheduler/queues';
-import { prisma } from '../lib/prisma';
+import { alertQueue, spawnQueue, defaultJobOpts } from '../scheduler/queues.js';
+import { prisma } from '../lib/prisma.js';
 
 export async function scheduleJobs(bossId: string, bossName: string, nextSpawnISO: string) {
   const next = dayjs(nextSpawnISO);

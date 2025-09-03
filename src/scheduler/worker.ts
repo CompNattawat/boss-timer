@@ -1,17 +1,17 @@
 import 'dotenv/config';
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import tz from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc.js';
+import tz from 'dayjs/plugin/timezone.js';
 dayjs.extend(utc); dayjs.extend(tz);
 
 import { Worker } from 'bullmq';
-import { connection } from './queues';
-import { prisma } from '../lib/prisma';
-import { ENV } from '../lib/env';
+import { connection } from './queues.js';
+import { prisma } from '../lib/prisma.js';
+import { ENV } from '../lib/env.js';
 import cronParser from 'cron-parser';
-import { scheduleJobs } from '../services/schedule.service';
-import { client } from '../lib/client';
-import { updateScheduleMessage } from '../services/discord.service';
+import { scheduleJobs } from '../services/schedule.service.js';
+import { client } from '../lib/client.js';
+import { updateScheduleMessage } from '../services/discord.service.js';
 import { TextChannel } from 'discord.js';
 
 client.login(ENV.DISCORD_TOKEN).then(() =>

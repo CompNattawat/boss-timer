@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
-import { data as bossData } from '../src/commands/boss';
-import { data as fixData } from '../src/commands/fix';
+import { data as bossData } from '../src/commands/boss.js';
+import { data as fixData } from '../src/commands/fix.js';
 
 const token = process.env.DISCORD_TOKEN!;
 const appId = process.env.DISCORD_APP_ID!;

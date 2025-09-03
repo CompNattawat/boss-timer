@@ -3,7 +3,7 @@ import {
     SlashCommandBuilder,
     PermissionFlagsBits,
   } from 'discord.js';
-  import { prisma } from '../lib/prisma';
+  import { prisma } from '../lib/prisma.js';
   
   export const data = new SlashCommandBuilder()
     .setName('fix')
@@ -66,7 +66,7 @@ import {
       });
       if (rules.length === 0) return i.reply({ content: 'ยังไม่มีกติกา fixed-time', ephemeral: true });
   
-      const lines = rules.map(r =>
+      const lines = rules.map((r: { id: any; enabled: any; boss: { name: any; }; cron: any; nextPreparedAt: any; }) =>
         `#${r.id} • ${r.enabled ? '✅' : '⛔️'} **${r.boss.name}** • \`${r.cron}\` • nextPreparedAt: ${r.nextPreparedAt ?? '—'}`
       );
       return i.reply({ content: lines.join('\n'), ephemeral: true });

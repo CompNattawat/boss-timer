@@ -4,14 +4,14 @@ import {
     PermissionFlagsBits,
   } from 'discord.js';
   import dayjs from 'dayjs';
-  import customParse from 'dayjs/plugin/customParseFormat';
-  import timezone from 'dayjs/plugin/timezone';
-  import utc from 'dayjs/plugin/utc';
+  import customParse from 'dayjs/plugin/customParseFormat.js';
+  import timezone from 'dayjs/plugin/timezone.js';
+  import utc from 'dayjs/plugin/utc.js';
   dayjs.extend(customParse); dayjs.extend(timezone); dayjs.extend(utc);
   
-  import { prisma } from '../lib/prisma';
-  import { updateScheduleMessage } from '../services/discord.service';
-  import { scheduleJobs } from '../services/schedule.service';
+  import { prisma } from '../lib/prisma.js';
+  import { updateScheduleMessage } from '../services/discord.service.js';
+  import { scheduleJobs } from '../services/schedule.service.js';
   
   const TZ = 'Asia/Bangkok';
   
