@@ -10,8 +10,8 @@ async function bootstrap() {
   const bosses = await prisma.boss.findMany();
 
   for (const boss of bosses) {
-    if (boss.nextSpawnISO) {
-      await scheduleJobs(boss.id, boss.name, boss.nextSpawnISO);
+    if (boss.nextSpawnAt) {
+      await scheduleJobs(boss.id, boss.name, boss.nextSpawnAt.toISOString());
       console.log(`Scheduled jobs for boss: ${boss.name}`);
     }
   }
