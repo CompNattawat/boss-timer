@@ -2,7 +2,7 @@
     "name": "boss-timer",
     "private": true,
     "type": "module",
-      "scripts": {
+    "scripts": {
         "build": "tsc",
         "start": "node dist/main.js",
         "start:bot": "node dist/main.js",
@@ -11,23 +11,25 @@
         "prisma:migrate": "prisma migrate deploy",
         "prisma:seed": "prisma db seed",
         "register": "tsx scripts/register-commands.ts"
-      },
-      "engines": { "node": ">=20" },
-      "prisma": {
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "prisma": {
         "seed": "tsx prisma/seed.ts"
-      },
+    },
     "dependencies": {
-      "@prisma/client": "^5.22.0",
-      "bullmq": "^5.58.4",
-      "cron-parser": "^4.9.0",
-      "dayjs": "^1.11.18",
-      "discord.js": "^14.22.1",
-      "dotenv": "^16.6.1",
-      "ioredis": "^5.7.0"
+        "@prisma/client": "^5.22.0",
+        "bullmq": "^5.58.4",
+        "cron-parser": "^4.9.0",
+        "dayjs": "^1.11.18",
+        "discord.js": "^14.22.1",
+        "dotenv": "^16.6.1",
+        "ioredis": "^5.7.0"
     },
     "devDependencies": {
-      "prisma": "^5.22.0",
-      "tsx": "^4.20.5",
-      "typescript": "^5.9.2"
+        "prisma": "^5.22.0",
+        "tsx": "^4.20.5",
+        "typescript": "^5.9.2"
     }
-  }
+}
