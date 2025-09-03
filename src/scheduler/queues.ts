@@ -9,6 +9,7 @@ const IORedis = (pkg as any).default ?? pkg;
 // ✅ export ออกไปใช้ที่อื่นได้
 export const connection = new IORedis(ENV.REDIS_URL, {
   maxRetriesPerRequest: null,
+  tls: ENV.REDIS_URL.startsWith("rediss://") ? {} : undefined,
 });
 
 export const alertQueue = new Queue('alert', { connection });
