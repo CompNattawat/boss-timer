@@ -30,7 +30,7 @@ async function renderTable(gameCode: string): Promise<string> {
 }
 
 /** อัปเดตข้อความตารางในช่องจาก ENV (ถ้ามี MESSAGE_ID จะ edit, ไม่มีจะส่งใหม่) */
-export async function updateScheduleMessage(gameCode: string): Promise<void> {
+export async function updateScheduleMessage(gameCode: string = ENV.DEFAULT_GAME_CODE): Promise<void> {
   const channelId = ENV.DISCORD_SCHEDULE_CHANNEL_ID;
   if (!channelId) {
     console.error('ENV.DISCORD_SCHEDULE_CHANNEL_ID is missing');
