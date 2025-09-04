@@ -1,7 +1,21 @@
 import dayjs from 'dayjs';
-import { alertQueue, spawnQueue, defaultJobOpts } from '../scheduler/queues.js';
+import { Queue, JobsOptions } from 'bullmq';;
+import { redis } from '../scheduler/queues.js'
 import { prisma } from '../lib/prisma.js';
 
+// --- BullMQ Queues ---
+export const alertQueue = new Queue('alert', { connection: redis });
+export const spawnQueue = new Queue('spawn', { connection: redis });
+
+export type AlertJobData = { bossId: string; bossName: string; nextSpawnISO: string };
+export type SpawnJobData = AlertJobData;
+
+export const defaultJobOpts: JobsOptions = {
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+};
+
+// เรียกจาก /boss death เพื่อวางงานแจ้งเตือน
 export async function scheduleJobs(bossId: string, bossName: string, nextSpawnISO: string) {
   const next = dayjs(nextSpawnISO);
   const alertAt = next.subtract(10, 'minute');
