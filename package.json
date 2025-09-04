@@ -18,9 +18,10 @@
         "node": ">=20"
     },
     "prisma": {
-      "seed": "tsx scripts/seed.ts"
+        "seed": "tsx scripts/seed.ts"
     },
     "dependencies": {
+        "@napi-rs/canvas": "^0.1.78",
         "@prisma/client": "^5.22.0",
         "bullmq": "^5.58.4",
         "cron-parser": "^4.9.0",

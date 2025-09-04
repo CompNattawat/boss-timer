@@ -4,6 +4,7 @@ import {
     PermissionFlagsBits,
   } from 'discord.js';
   import { prisma } from '../lib/prisma.js';
+  import { safeReply } from '../lib/interaction.js';
   
   export const data = new SlashCommandBuilder()
     .setName('fix')
@@ -33,7 +34,7 @@ import {
     const gameCode = (i.options.get('game')?.value as string | undefined) ?? 'L9';
   
     if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-      return i.reply({ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+      return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
     }
   
     if (sub === 'add') {
@@ -47,41 +48,41 @@ import {
       });
       const boss = await prisma.boss.findFirst({ where: { gameId: game.id, name } });
       if (!boss)
-        return i.reply({ content: `ไม่พบบอส "${name}" ในเกม ${gameCode}`, ephemeral: true });
+        return await safeReply(i,{ content: `ไม่พบบอส "${name}" ในเกม ${gameCode}`, ephemeral: true });
   
       const rule = await prisma.fixedRule.create({
         data: { gameId: game.id, bossId: boss.id, cron, tz: 'Asia/Bangkok', enabled: true },
       });
-      return i.reply({ content: `เพิ่ม fixed-time #${rule.id} สำหรับ **${name}**: \`${cron}\``, ephemeral: true });
+      return await safeReply(i,{ content: `เพิ่ม fixed-time #${rule.id} สำหรับ **${name}**: \`${cron}\``, ephemeral: true });
     }
   
     if (sub === 'list') {
       const game = await prisma.game.findUnique({ where: { code: gameCode } });
-      if (!game) return i.reply({ content: `ไม่พบเกม ${gameCode}`, ephemeral: true });
+      if (!game) return await safeReply(i,{ content: `ไม่พบเกม ${gameCode}`, ephemeral: true });
   
       const rules = await prisma.fixedRule.findMany({
         where: { gameId: game.id },
         include: { boss: true },
         orderBy: { createdAt: 'desc' },
       });
-      if (rules.length === 0) return i.reply({ content: 'ยังไม่มีกติกา fixed-time', ephemeral: true });
+      if (rules.length === 0) return await safeReply(i,{ content: 'ยังไม่มีกติกา fixed-time', ephemeral: true });
   
       const lines = rules.map((r: { id: any; enabled: any; boss: { name: any; }; cron: any; nextPreparedAt: any; }) =>
         `#${r.id} • ${r.enabled ? '✅' : '⛔️'} **${r.boss.name}** • \`${r.cron}\` • nextPreparedAt: ${r.nextPreparedAt ?? '—'}`
       );
-      return i.reply({ content: lines.join('\n'), ephemeral: true });
+      return await safeReply(i,{ content: lines.join('\n'), ephemeral: true });
     }
   
     if (sub === 'remove') {
       const id = i.options.get('id', true).value as string;
       await prisma.fixedRule.delete({ where: { id } }).catch(() => null);
-      return i.reply({ content: `ลบ fixed-time #${id} แล้ว`, ephemeral: true });
+      return await safeReply(i,{ content: `ลบ fixed-time #${id} แล้ว`, ephemeral: true });
     }
   
     if (sub === 'toggle') {
       const id = i.options.get('id', true).value as string;
       const enabled = i.options.get('enabled', true).value as boolean;
       await prisma.fixedRule.update({ where: { id }, data: { enabled } }).catch(() => null);
-      return i.reply({ content: `${enabled ? 'เปิด' : 'ปิด'} fixed-time #${id} แล้ว`, ephemeral: true });
+      return await safeReply(i,{ content: `${enabled ? 'เปิด' : 'ปิด'} fixed-time #${id} แล้ว`, ephemeral: true });
     }
   }

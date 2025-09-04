@@ -1,7 +1,6 @@
 import dayjs from 'dayjs';
 import { Queue, JobsOptions } from 'bullmq';;
 import { redis } from '../scheduler/queues.js'
-import { prisma } from '../lib/prisma.js';
 
 // --- BullMQ Queues ---
 export const alertQueue = new Queue('alert', { connection: redis });
@@ -16,26 +15,30 @@ export const defaultJobOpts: JobsOptions = {
 };
 
 // เรียกจาก /boss death เพื่อวางงานแจ้งเตือน
+// schedule.service.ts
 export async function scheduleJobs(bossId: string, bossName: string, nextSpawnISO: string) {
-  const next = dayjs(nextSpawnISO);
-  const alertAt = next.subtract(10, 'minute');
+  const delayAlert = Math.max(0, dayjs(nextSpawnISO).subtract(10,'minute').diff(dayjs()));
+  const delaySpawn = Math.max(0, dayjs(nextSpawnISO).diff(dayjs()));
 
   await alertQueue.add(
     'alert',
     { bossId, bossName, nextSpawnISO },
-    { delay: Math.max(0, alertAt.diff(dayjs())), ...defaultJobOpts }
+    {
+      jobId: `a:${bossId}:${nextSpawnISO}`,
+      delay: delayAlert,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
   );
 
   await spawnQueue.add(
     'spawn',
     { bossId, bossName, nextSpawnISO },
-    { delay: Math.max(0, next.diff(dayjs())), ...defaultJobOpts }
+    {
+      jobId: `s:${bossId}:${nextSpawnISO}`,
+      delay: delaySpawn,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
   );
-
-  await prisma.jobLog.createMany({
-    data: [
-      { bossId, type: 'alert', runAt: alertAt.toDate(), status: 'scheduled' },
-      { bossId, type: 'spawn', runAt: next.toDate(), status: 'scheduled' },
-    ],
-  });
 }

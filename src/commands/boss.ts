@@ -3,16 +3,19 @@ import {
     SlashCommandBuilder,
     PermissionFlagsBits,
   } from 'discord.js';
-  import dayjs from 'dayjs';
-  import customParse from 'dayjs/plugin/customParseFormat.js';
-  import timezone from 'dayjs/plugin/timezone.js';
-  import utc from 'dayjs/plugin/utc.js';
-  dayjs.extend(customParse); dayjs.extend(timezone); dayjs.extend(utc);
+import dayjs from 'dayjs';
+import customParse from 'dayjs/plugin/customParseFormat.js';
+import timezone from 'dayjs/plugin/timezone.js';
+import utc from 'dayjs/plugin/utc.js';
+dayjs.extend(customParse); dayjs.extend(timezone); dayjs.extend(utc);
   
-  import { prisma } from '../lib/prisma.js';
-  import { updateScheduleMessage } from '../services/discord.service.js';
-  import { scheduleJobs } from '../services/schedule.service.js';
-  
+import { prisma } from '../lib/prisma.js';
+import { updateScheduleMessage } from '../services/discord.service.js';
+import { scheduleJobs } from '../services/schedule.service.js';
+import cronParser from 'cron-parser';
+import { alertQueue, spawnQueue } from '../scheduler/queues.js';
+import { safeReply } from '../lib/interaction.js';
+
   const TZ = 'Asia/Bangkok';
   
   export const data = new SlashCommandBuilder()
@@ -30,76 +33,169 @@ import {
       .addStringOption(o => o.setName('time').setDescription('HH:mm [DD/MM/YY]').setRequired(true))
       .addStringOption(o => o.setName('game').setDescription('โค้ดเกม'))
     )
+    .addSubcommand(sc => sc.setName('reset')
+      .setDescription('รีเซ็ตเวลาบอส “เฉพาะตัวนี้”')
+      .addStringOption(o => o.setName('name').setDescription('ชื่อบอส').setRequired(true))
+      .addStringOption(o => o.setName('game').setDescription('โค้ดเกม'))
+    )
     .addSubcommand(sc => sc.setName('reset-all').setDescription('รีเซ็ตเวลาบอสทั้งหมด'))
     .addSubcommand(sc => sc.setName('table').setDescription('อัปเดตตารางบอสในแชนแนล'));
+
+    async function getNextFixedSpawn(bossId: string, deathLocalISO: string) {
+      const rules = await prisma.fixedRule.findMany({
+        where: { bossId, enabled: true },
+      });
+      if (!rules.length) return null;
+    
+      const base = new Date(deathLocalISO); // เวลาไทยถูก parse แล้ว (ด้านล่าง)
+      const candidates: Date[] = [];
+    
+      for (const r of rules) {
+        try {
+          const it = cronParser.parseExpression(r.cron, {
+            tz: r.tz || TZ,
+            currentDate: base,          // หา occurrence ถัดไป “หลัง” เวลาตาย
+          });
+          candidates.push(it.next().toDate());
+        } catch (e) {
+          console.warn('skip invalid cron for rule', r.id, r.cron, e);
+        }
+      }
+    
+      if (!candidates.length) return null;
+      // หาค่าที่เร็วที่สุด
+      return candidates.reduce((a, b) => (a < b ? a : b));
+    }
+
+    async function cancelJobsForBoss(bossId: string) {
+      const delayedA = await alertQueue.getDelayed();
+      const delayedS = await spawnQueue.getDelayed();
+    
+      await Promise.all(
+        delayedA
+          .filter(j => j.data?.bossId === bossId)
+          .map(j => j.remove().catch(() => {}))
+      );
+      await Promise.all(
+        delayedS
+          .filter(j => j.data?.bossId === bossId)
+          .map(j => j.remove().catch(() => {}))
+      );
+    }
   
   export async function execute(i: ChatInputCommandInteraction) {
     const sub = i.options.getSubcommand();
     const gameCode = (i.options.get('game')?.value as string | undefined) ?? 'L9';
   
     if (sub === 'add') {
-      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
-        return i.reply({ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
-  
-      const name = i.options.get('name', true).value as string;
-      const hours = i.options.get('hours', true).value as number;
-  
-      const game = await prisma.game.upsert({
-        where: { code: gameCode },
-        update: {},
-        create: { code: gameCode, name: gameCode },
-      });
-      await prisma.boss.upsert({
-        where: { gameId_name: { gameId: game.id, name } },
-        update: { respawnHours: hours },
-        create: { gameId: game.id, name, respawnHours: hours },
-      });
-      await updateScheduleMessage(gameCode);
-      return i.reply({ content: `เพิ่ม/อัปเดตบอส **${name}** (${hours}ชม.) แล้ว`, ephemeral: true });
+        if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+          return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+    
+        const name = i.options.get('name', true).value as string;
+        const hours = i.options.get('hours', true).value as number;
+    
+        const game = await prisma.game.upsert({
+          where: { code: gameCode },
+          update: {},
+          create: { code: gameCode, name: gameCode },
+        });
+        await prisma.boss.upsert({
+          where: { gameId_name: { gameId: game.id, name } },
+          update: { respawnHours: hours },
+          create: { gameId: game.id, name, respawnHours: hours },
+        });
+        await updateScheduleMessage(gameCode);
+        return await safeReply(i,{ content: `เพิ่ม/อัปเดตบอส **${name}** (${hours}ชม.) แล้ว`, ephemeral: true });
     }
-  
+    
     if (sub === 'death') {
       const name = i.options.get('name', true).value as string;
       const timeText = i.options.get('time', true).value as string;
-  
+
       const now = dayjs().tz(TZ);
       const [hm, dmy = now.format('DD/MM/YY')] = timeText.trim().split(/\s+/);
       const deathLocal = dayjs.tz(`${dmy} ${hm}`, 'DD/MM/YY HH:mm', TZ);
       if (!deathLocal.isValid())
-        return i.reply({ content: 'รูปแบบเวลาไม่ถูกต้อง', ephemeral: true });
-  
+        return await safeReply(i,{ content: 'รูปแบบเวลาไม่ถูกต้อง', ephemeral: true });
+
       const game = await prisma.game.upsert({
         where: { code: gameCode },
         update: {},
         create: { code: gameCode, name: gameCode },
       });
       const boss = await prisma.boss.findFirst({ where: { gameId: game.id, name } });
-      if (!boss) return i.reply({ content: `ไม่พบบอสชื่อ "${name}"`, ephemeral: true });
-  
-      const next = deathLocal.add(boss.respawnHours, 'hour').toDate();
+      if (!boss) return await safeReply(i,{ content: `ไม่พบบอสชื่อ "${name}"`, ephemeral: true });
+
+      // ✅ ถ้ามี fixedRule ใช้ cron คำนวณรอบถัดไปจาก “เวลาตาย”
+      let next: Date | null = await getNextFixedSpawn(boss.id, deathLocal.toISOString());
+
+      // ถ้าไม่มี fixed rule ค่อยใช้ +hours
+      if (!next) {
+        next = deathLocal.add(boss.respawnHours, 'hour').toDate();
+      }
+
       await prisma.boss.update({
         where: { id: boss.id },
         data: { lastDeathAt: deathLocal.toDate(), nextSpawnAt: next },
       });
+
       await scheduleJobs(boss.id, boss.name, next.toISOString());
       await updateScheduleMessage(gameCode);
-      return i.reply({ content: `บันทึกตาย **${name}** เวลา ${deathLocal.format('DD/MM/YY HH:mm')} แล้ว`, ephemeral: true });
+
+      return await safeReply(i,{
+        content: `บันทึกตาย **${boss.name}** เวลา ${deathLocal.format('DD/MM/YY HH:mm')} แล้ว\nรอบเกิดถัดไป: ${dayjs(next).tz(TZ).format('DD/MM/YY HH:mm')}`,
+        ephemeral: true,
+      });
     }
-  
-    if (sub === 'reset-all') {
-      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
-        return i.reply({ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
-  
-      const game = await prisma.game.findUnique({ where: { code: gameCode } });
-      if (game) {
-        await prisma.boss.updateMany({ where: { gameId: game.id }, data: { lastDeathAt: null, nextSpawnAt: null } });
+
+    if (sub === 'reset') {
+      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
       }
+    
+      const name = i.options.get('name', true).value as string;
+      const game = await prisma.game.upsert({
+        where: { code: gameCode },
+        update: {},
+        create: { code: gameCode, name: gameCode },
+      });
+    
+      const boss = await prisma.boss.findFirst({
+        where: { gameId: game.id, name },
+      });
+      if (!boss) {
+        return await safeReply(i,{ content: `ไม่พบบอสชื่อ "${name}" ในเกม ${gameCode}`, ephemeral: true });
+      }
+    
+      // ลบงานแจ้งเตือน/สแปวนที่ตั้งไว้ของบอสนี้
+      await cancelJobsForBoss(boss.id).catch(e => console.warn('cancelJobsForBoss error', e));
+    
+      // รีเซ็ตเวลาบอส
+      await prisma.boss.update({
+        where: { id: boss.id },
+        data: { lastDeathAt: null, nextSpawnAt: null },
+      });
+    
+      // อัปเดตตารางในแชนแนล
       await updateScheduleMessage(gameCode);
-      return i.reply({ content: 'รีเซ็ตเวลาบอสทั้งหมดแล้ว', ephemeral: true });
+    
+      return await safeReply(i,{ content: `รีเซ็ตเวลา **${boss.name}** แล้ว`, ephemeral: false });
     }
-  
+    
+    if (sub === 'reset-all') {
+        if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+          return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+    
+        const game = await prisma.game.findUnique({ where: { code: gameCode } });
+        if (game) {
+          await prisma.boss.updateMany({ where: { gameId: game.id }, data: { lastDeathAt: null, nextSpawnAt: null } });
+        }
+        await updateScheduleMessage(gameCode);
+        return await safeReply(i,{ content: 'รีเซ็ตเวลาบอสทั้งหมดแล้ว', ephemeral: true });
+    }
+    
     if (sub === 'table') {
       await updateScheduleMessage(gameCode);
-      return i.reply({ content: 'อัปเดตตารางแล้ว', ephemeral: true });
+      return await safeReply(i,{ content: 'อัปเดตตารางแล้ว', ephemeral: false });
     }
   }
