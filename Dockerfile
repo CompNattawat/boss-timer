@@ -18,5 +18,5 @@ RUN npx prisma generate
 COPY . .
 RUN npm run build
 
-# เลือก process ตาม SERVICE_ROLE
-CMD ["bash","-lc","if [ \"$SERVICE_ROLE\" = \"worker\" ]; then npm run start:worker; else npm run start:bot; fi"]
+# รัน migrate + seed เสมอ แล้วค่อยเลือก start ตาม SERVICE_ROLE
+CMD ["bash","-lc","npx prisma migrate deploy && npx prisma db seed || true; if [ \"$SERVICE_ROLE\" = \"worker\" ]; then npm run start:worker; else npm run start:bot; fi"]
