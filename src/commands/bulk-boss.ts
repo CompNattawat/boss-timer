@@ -19,21 +19,24 @@ import { getAttachmentOption } from '../lib/attachments.js';
   };
   
   export const data = new SlashCommandBuilder()
-    .setName('boss-bulk')
-    .setDescription('จัดการบอสหลายรายการด้วยไฟล์ CSV/JSON')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addStringOption(o =>
-      o.setName('mode')
-       .setDescription('เลือกโหมด (ถ้าไม่เลือก จะอ่าน action จากไฟล์)')
-       .addChoices(
-          { name: 'add-or-update', value: 'add' },
-          { name: 'reset', value: 'reset' },
-          { name: 'delete', value: 'delete' },
-       )
-    )
-    .addAttachmentOption(o =>
-      o.setName('file').setDescription('ไฟล์ CSV หรือ JSON').setRequired(true)
-    );
+  .setName('bulk-boss')
+  .setDescription('เพิ่ม/ลบ/รีเซ็ต บอสแบบอัพโหลดไฟล์ (CSV/JSON)')
+  .addStringOption(o =>
+    o.setName('mode')
+     .setDescription('โหมดการทำงาน')
+     .setRequired(true)
+     .addChoices(
+       { name: 'add-or-update', value: 'upsert' },
+       { name: 'delete', value: 'delete' },
+       { name: 'reset-times', value: 'reset' },
+     )
+  )
+  .addAttachmentOption(o =>
+    o.setName('file').setDescription('CSV/JSON').setRequired(true)
+  )
+  .addStringOption(o =>
+    o.setName('game').setDescription('รหัสเกม (ค่าเริ่มต้นตาม ENV)').setRequired(false)
+  );
   
   export async function execute(i: ChatInputCommandInteraction) {
     await safeDefer(i, true); // ทำงานนาน ใช้ ephemeral

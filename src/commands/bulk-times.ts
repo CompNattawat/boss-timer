@@ -41,6 +41,9 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
        .setRequired(true)
     )
     .addStringOption(o =>
+        o.setName('game').setDescription('รหัสเกม (ค่าเริ่มต้นตาม ENV)').setRequired(false)
+      )
+    .addStringOption(o =>
       o.setName('tz')
        .setDescription('เช่น Asia/Bangkok (ค่าดีฟอลต์)')
     )
