@@ -1,27 +1,24 @@
-# ---- Base image
+# ---- Base
 FROM node:20-slim
 
 WORKDIR /app
-ENV NODE_ENV=production
 
-# Prisma ต้องใช้ OpenSSL (slim ไม่มีมาให้)
+# Prisma ต้องมี openssl (no-recommends เพื่อลดขนาด)
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Install deps first (cache-friendly)
-# ถ้ามี package-lock.json ให้คัดลอกมาด้วยจะ cache ได้ดีขึ้น
+# ---- Install deps (รวม devDependencies เพื่อให้มี tsc/tsx)
+# *** สำคัญ: อย่าตั้ง NODE_ENV=production ก่อนขั้นตอนนี้ ***
 COPY package.json ./
 COPY package-lock.json* ./
-# พยายามใช้ npm ci ก่อน ถ้าไม่มี lock ให้ fallback เป็น npm install
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci || npm install
 
-# ---- Prisma Client
+# ---- Prisma client
 COPY prisma ./prisma
 RUN npx prisma generate
 
-# ---- App source + fonts
-# คัดลอกโฟลเดอร์ฟอนต์ขึ้น image (เช่น fonts/Prompt/*.ttf)
+# ---- Static assets & source
 COPY fonts ./fonts
 COPY tsconfig.json ./
 COPY src ./src
@@ -32,8 +29,11 @@ COPY README.md ./
 RUN npm run build
 
 # ---- Run
-# 1) migrate + seed ทุกครั้งที่เริ่มคอนเทนเนอร์ (ล้มแล้วไม่ให้เด้ง)
-# 2) เลือก start ตาม SERVICE_ROLE = "worker" เพื่อรัน worker, อื่นๆ รัน bot
+# ตั้ง production หลังจาก build เสร็จ เพื่อไม่ให้ตัด devDeps ตอนติดตั้ง
+ENV NODE_ENV=production
+
+# migrate + seed แล้วเลือก process ตาม SERVICE_ROLE
+# seed ต้องชี้ไปที่ไฟล์ที่ build แล้ว (dist/scripts/seed.js)
 CMD ["bash","-lc", "\
     npx prisma migrate deploy && \
     npx prisma db seed || true; \
