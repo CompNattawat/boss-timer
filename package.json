@@ -18,7 +18,7 @@
         "node": ">=20"
     },
     "prisma": {
-        "seed": "tsx scripts/seed.ts"
+        "seed": "node dist/scripts/seed.js"
     },
     "dependencies": {
         "@napi-rs/canvas": "^0.1.78",
