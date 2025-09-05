@@ -27,6 +27,14 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       .addIntegerOption(o => o.setName('hours').setDescription('ชั่วโมงเกิดซ้ำ').setRequired(true))
       .addStringOption(o => o.setName('game').setDescription('โค้ดเกม'))
     )
+    .addSubcommand(sub =>
+      sub
+        .setName('delete')
+        .setDescription('ลบบอสออก')
+        .addStringOption(o =>
+          o.setName('name').setDescription('ชื่อบอส').setRequired(true),
+        ),
+    )
     .addSubcommand(sc => sc.setName('death')
       .setDescription('บันทึกเวลาตาย (เวลาไทย) เช่น "07:26" หรือ "07:26 02/09/25"')
       .addStringOption(o => o.setName('name').setDescription('ชื่อบอส').setRequired(true))
@@ -109,6 +117,32 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
         });
         await updateScheduleMessage(gameCode);
         return await safeReply(i,{ content: `เพิ่ม/อัปเดตบอส **${name}** (${hours}ชม.) แล้ว` });
+    }
+
+    if (sub === 'delete') {
+      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        return await safeReply(i, { content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
+      }
+
+      const name = i.options.get('name', true).value as string;
+      const game = await prisma.game.findUnique({ where: { code: gameCode } });
+      if (!game) {
+        return await safeReply(i, { content: `ยังไม่มีเกม ${gameCode}` });
+      }
+
+      const boss = await prisma.boss.findUnique({
+        where: { gameId_name: { gameId: game.id, name } },
+      });
+      if (!boss) {
+        return await safeReply(i, { content: `ไม่พบบอสชื่อ **${name}**` });
+      }
+
+      // ลบ boss พร้อม fixedRules ที่เกี่ยวข้อง
+      await prisma.fixedRule.deleteMany({ where: { bossId: boss.id } });
+      await prisma.boss.delete({ where: { id: boss.id } });
+
+      await updateScheduleMessage(gameCode);
+      return await safeReply(i, { content: `ลบบอส **${name}** แล้ว` });
     }
     
     if (sub === 'death') {
