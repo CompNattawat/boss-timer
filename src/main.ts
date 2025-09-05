@@ -5,12 +5,13 @@ import { Events } from 'discord.js';
 import { data as bossData, execute as bossExecute } from './commands/boss.js';
 import { data as fixData, execute as fixExecute } from './commands/fix.js';
 import { data as scheduleData, execute as scheduleExecute } from './commands/schedule.js';
+import { data as bulkData, execute as bulkExecute } from './commands/boss-bulk.js';
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`Ready! Logged in as ${c.user.tag}`);
   try {
     const guild = await c.guilds.fetch(ENV.DISCORD_GUILD_ID);
-    await guild.commands.set([bossData, fixData, scheduleData].map(d => d.toJSON()));
+    await guild.commands.set([bossData, fixData, scheduleData, bulkData].map(d => d.toJSON()));
     console.log(`Registered slash commands to ${guild.name}`);
   } catch (err) {
     console.error('Register commands failed:', err);
@@ -23,6 +24,7 @@ client.on('interactionCreate', async (i) => {
     if (i.commandName === bossData.name) return bossExecute(i);
     if (i.commandName === fixData.name) return fixExecute(i);
     if (i.commandName === scheduleData.name) return scheduleExecute(i);
+    if (i.commandName === bulkData.name) return bulkExecute(i);
   } catch (e) {
     console.error('interaction error:', e);
     if (!i.replied) {
