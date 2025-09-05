@@ -60,6 +60,10 @@ type Row = {
   fixSlotsText: string;
 };
 
+function buildHeader(gameCode: string) {
+  return `📅 ตารางบอส (${gameCode})`;
+}
+
 // แปลง daily bosses -> string table
 function buildDailyTableRows(bosses: any[]): string {
   const COLS = { name: 16, rh: 5, last: 15, next: 16 };
@@ -141,10 +145,9 @@ export async function renderTablesSplit(gameCode: string): Promise<{daily: strin
     });
 
     //จัดรูปแบบเป็น “ตารางตัวอักษร” ตามตัวอย่าง
-    const title = (label: string) =>
-      `📅 ตารางบอส (${gameCode}) — ${label}\nอัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`;
+    const title = buildHeader(gameCode)
     const updated = `อัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`;
-
+    
     return {
       daily: [title, updated, '', wrapBlock(buildDailyTableRows(dailyRows))].join('\n'),
       fixed: [wrapBlock(buildFixedTableRows(fixedRows)), 'หมายเหตุ: Fixed = ใช้ตาราง cron ไม่ใช่ respawnHours'].join('\n'),
