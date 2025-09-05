@@ -1,6 +1,9 @@
 // src/graphics/renderScheduleImage.ts
-import { createCanvas, GlobalFonts, SKRSContext2D } from '@napi-rs/canvas';
+import { createCanvas, SKRSContext2D } from '@napi-rs/canvas';
 import { AttachmentBuilder } from 'discord.js';
+import { GlobalFonts } from '@napi-rs/canvas';
+import fs from 'fs';
+import path from 'path';
 
 type DailyRow = {
   name: string;
@@ -23,9 +26,36 @@ export type ScheduleImageInput = {
   fixed: FixedRow[];
 };
 
-// ตัวอย่างการลงฟอนต์ไทย (ถ้ามีไฟล์ฟอนต์ในโปรเจ็กต์)
-// GlobalFonts.register('/app/fonts/Prompt-Regular.ttf', 'Prompt');
+function registerThaiFonts() {
+  const base = '/app/fonts/Prompt'; // ชี้ไปที่โฟลเดอร์ใน container
+  const candidates = [
+    ['Prompt-Regular.ttf', 'Prompt'],
+    ['Prompt-Bold.ttf', 'PromptBold'],
+    // มีไฟล์ไหนเพิ่ม ก็ map ได้ เช่น Medium/SemiBold
+  ];
 
+  for (const [file, family] of candidates) {
+    const p = path.join(base, file);
+    if (fs.existsSync(p)) {
+      try {
+        GlobalFonts.register(p, family);
+        console.log(`[fonts] registered ${family} -> ${p}`);
+      } catch (e) {
+        console.warn(`[fonts] failed ${family}:`, e);
+      }
+    } else {
+      console.warn(`[fonts] not found: ${p}`);
+    }
+  }
+}
+registerThaiFonts();
+
+const FONT_UI = 'sans-serif';
+
+
+/* =========================
+   Main renderer
+========================= */
 export function renderScheduleImage({
   title = 'BOSS RESPAWN TIMER',
   subtitle,
@@ -33,144 +63,246 @@ export function renderScheduleImage({
   daily,
   fixed,
 }: ScheduleImageInput) {
-  const W = 1100;
-  const headerH = 120;
-  const rowH = 44;
-  const dailyH = 60 + daily.length * rowH + 20;
-  const fixedRowH = 70;
+  // ---- layout sizing ----
+  const W = 1200;
+
+  // header
+  const headerH = 140;
+
+  // daily table
+  const dailyRowH = 46;
+  const dailyTablePad = 16;
+  const dailyTableInnerH = 44 + daily.length * dailyRowH + 12;
+  const dailyH = 40 + dailyTableInnerH + 20;
+
+  // fixed cards
+  const fixedCardH = 86;
   const fixedCols = 3;
-  const fixedRows = Math.ceil(fixed.length / fixedCols);
-  const fixedH = 60 + Math.max(1, fixedRows) * fixedRowH + 20;
-  const H = headerH + dailyH + fixedH + 40;
+  const fixedGap = 16;
+  const fixedSidePad = 24;
+  const fixedRows = Math.max(1, Math.ceil(fixed.length / fixedCols));
+  const fixedBlockH = 30 + fixedRows * (fixedCardH + fixedGap) - fixedGap + 20;
+
+  const H = 24 + headerH + 16 + dailyH + 8 + fixedBlockH + 24;
 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
-  // BG
-  const grad = ctx.createLinearGradient(0, 0, 0, headerH + 80);
-  grad.addColorStop(0, '#8a2be2');
-  grad.addColorStop(1, '#ff7ec8');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, headerH + 80);
+  // ---- background ----
+  const topGrad = ctx.createLinearGradient(0, 0, 0, headerH + 60);
+  topGrad.addColorStop(0, '#7b5cff');   // indigo
+  topGrad.addColorStop(1, '#b96bff');   // purple
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(0, 0, W, headerH + 60);
 
-  ctx.fillStyle = '#f7f7fb';
-  ctx.fillRect(0, headerH + 80, W, H - (headerH + 80));
+  ctx.fillStyle = '#f6f7fb';
+  ctx.fillRect(0, headerH + 60, W, H - (headerH + 60));
 
-  // Header card
-  ctx.fillStyle = '#fff';
-  ctx.shadowColor = 'rgba(0,0,0,0.15)';
-  ctx.shadowBlur = 12;
-  roundRect(ctx, 20, 20, W - 40, headerH, 14, true, false);
+  // ---- header card ----
+  ctx.shadowColor = 'rgba(73, 48, 140, .25)';
+  ctx.shadowBlur = 18;
+  roundRect(ctx, 20, 20, W - 40, headerH, 18, true);
   ctx.shadowBlur = 0;
 
-  ctx.fillStyle = '#3b2a63';
-  ctx.font = 'bold 36px sans-serif';
-  centerText(ctx, title, W / 2, 65);
+  // header content
+  const headerX = 20;
+  const headerY = 20;
+  const headerW = W - 40;
 
-  ctx.fillStyle = '#6b5ca3';
-  ctx.font = '16px sans-serif';
-  let sub = subtitle ?? '';
-  if (tzLabel) sub = sub ? `${sub}  •  TZ: ${tzLabel}` : `TZ: ${tzLabel}`;
-  if (sub) centerText(ctx, sub, W / 2, 95);
+  // title
+  setFont(ctx, 36, 'bold');
+  ctx.fillStyle = '#2b2250';
+  drawCenter(ctx, title, headerX, headerY, headerW, 56);
 
-  // Daily table
-  let y = headerH + 110;
-  drawSectionTitle(ctx, 'Daily Bosses (บอสรายวัน)', 30, y);
-  y += 28;
+  // subtitle + tz
+  const subText = [subtitle?.trim(), tzLabel ? `TZ: ${tzLabel}` : '']
+    .filter(Boolean)
+    .join('  •  ');
 
-  const tableX = 30;
-  const tableW = W - 60;
-  const colXs = [tableX + 0, tableX + 150, tableX + 470, tableX + 770];
-  const headers = ['ชื่อบอส', 'รอบเกิด', 'เวลาตายล่าสุด', 'เกิดรอบถัดไป'];
+  if (subText) {
+    setFont(ctx, 16, 'regular');
+    ctx.fillStyle = '#6d5fb1';
+    drawCenter(ctx, subText, headerX, headerY, headerW, 98);
+  }
 
-  ctx.fillStyle = '#fff';
-  ctx.shadowColor = 'rgba(0,0,0,0.08)';
-  ctx.shadowBlur = 8;
-  roundRect(ctx, tableX, y, tableW, 60 + daily.length * rowH + 10, 10, true, false);
+  // ---- DAILY TABLE ----
+  let y = 20 + headerH + 32;
+  drawSectionHeader(ctx, 'Daily Bosses (บอสรายวัน)', 28, y);
+  y += 18;
+
+  // table frame
+  const tX = 28;
+  const tW = W - tX * 2;
+  const tY = y + 16;
+  const tH = dailyTableInnerH + dailyTablePad * 2;
+
+  ctx.shadowColor = 'rgba(0,0,0,.06)';
+  ctx.shadowBlur = 10;
+  roundRect(ctx, tX, tY, tW, tH, 14, true);
   ctx.shadowBlur = 0;
 
-  ctx.fillStyle = '#f0f3ff';
-  roundRect(ctx, tableX + 10, y + 10, tableW - 20, 40, 8, true, false);
+  // header row bg
+  ctx.fillStyle = '#eef0ff';
+  roundRect(ctx, tX + dailyTablePad, tY + dailyTablePad, tW - dailyTablePad * 2, 40, 10, true);
 
+  // column layout
+  const col = {
+    name: tX + dailyTablePad + 18,
+    respawn: tX + 220,
+    last: tX + 470,
+    next: tX + 770,
+  };
+
+  // table headers
+  setFont(ctx, 15, 'bold');
   ctx.fillStyle = '#2b2d42';
-  ctx.font = 'bold 16px sans-serif';
-  ctx.fillText(headers[0], colXs[0] + 20, y + 36);
-  ctx.fillText(headers[1], colXs[1] + 20, y + 36);
-  ctx.fillText(headers[2], colXs[2] + 20, y + 36);
-  ctx.fillText(headers[3], colXs[3] + 20, y + 36);
+  ctx.fillText('ชื่อบอส', col.name, tY + dailyTablePad + 27);
+  ctx.fillText('รอบเกิด', col.respawn, tY + dailyTablePad + 27);
+  ctx.fillText('เวลาตายล่าสุด', col.last, tY + dailyTablePad + 27);
+  ctx.fillText('เกิดรอบถัดไป', col.next, tY + dailyTablePad + 27);
 
-  ctx.font = '16px sans-serif';
-  let ry = y + 60;
-  daily.forEach((d, idx) => {
-    if (idx % 2 === 0) {
+  // rows
+  let rY = tY + dailyTablePad + 40;
+  for (let i = 0; i < daily.length; i++) {
+    const d = daily[i];
+
+    // zebra row
+    if (i % 2 === 0) {
       ctx.fillStyle = '#fafbff';
-      roundRect(ctx, tableX + 10, ry + 4, tableW - 20, rowH - 8, 6, true, false);
+      roundRect(ctx, tX + dailyTablePad, rY + 6, tW - dailyTablePad * 2, dailyRowH - 12, 8, true);
     }
-    ctx.fillStyle = '#232323';
-    ctx.fillText(d.name, colXs[0] + 20, ry + 28);
 
-    ctx.fillStyle = '#6949ff';
-    drawBadge(ctx, `${d.respawnHours} ชม.`, colXs[1] + 18, ry + 10);
+    // name
+    setFont(ctx, 16, 'bold');
+    ctx.fillStyle = '#1e1f2c';
+    ctx.fillText(d.name, col.name, rY + 28);
 
-    ctx.fillStyle = '#434343';
-    ctx.fillText(d.lastDeath ?? '-', colXs[2] + 20, ry + 28);
+    // respawn badge
+    drawBadge(ctx, `${d.respawnHours} ชม.`, col.respawn, rY + 10);
 
+    // last
+    setFont(ctx, 16);
+    ctx.fillStyle = '#4c4f69';
+    ctx.fillText(d.lastDeath ?? '—', col.last, rY + 28);
+
+    // next
+    setFont(ctx, 16, 'bold');
     ctx.fillStyle = '#0b7d5b';
-    ctx.fillText(d.nextSpawn ?? '-', colXs[3] + 20, ry + 28);
+    ctx.fillText(d.nextSpawn ?? '—', col.next, rY + 28);
 
-    ry += rowH;
-  });
+    rY += dailyRowH;
+  }
 
-  y = y + 60 + daily.length * rowH + 30;
+  y = tY + tH + 26;
 
-  // Fixed cards
-  drawSectionTitle(ctx, 'บอสรายเวลา (Fixed)', 30, y);
-  y += 20;
+  // ---- FIXED CARDS ----
+  drawSectionHeader(ctx, 'Fixed-time Bosses (บอสรายเวลา)', 28, y);
+  y += 10;
 
-  const cardPad = 16;
-  const cardW = Math.floor((W - 60 - cardPad * 2) / 3);
-  let fx = 30, fy = y + 16;
+  const gridX = 28 + fixedSidePad;
+  const gridW = W - 2 * (28 + fixedSidePad);
+  const cardW = Math.floor((gridW - (fixedGap * (fixedCols - 1))) / fixedCols);
+
+  let cx = gridX;
+  let cy = y + 26;
 
   fixed.forEach((f, i) => {
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.06)';
-    ctx.shadowBlur = 6;
-    roundRect(ctx, fx, fy, cardW, fixedRowH, 10, true, false);
+    // card
+    ctx.shadowColor = 'rgba(0,0,0,.05)';
+    ctx.shadowBlur = 8;
+    roundRect(ctx, cx, cy, cardW, fixedCardH, 12, true);
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = '#1d2030';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(f.name, fx + 16, fy + 28);
+    // name
+    setFont(ctx, 18, 'bold');
+    ctx.fillStyle = '#1c2130';
+    ctx.fillText(f.name, cx + 16, cy + 30);
 
+    // next spawn
+    setFont(ctx, 15);
     ctx.fillStyle = '#0b7d5b';
-    ctx.font = '16px sans-serif';
-    ctx.fillText(f.nextSpawn ? `รอบหน้า: ${f.nextSpawn}` : 'รอบหน้า: -', fx + 16, fy + 50);
+    ctx.fillText(f.nextSpawn ? `รอบถัดไป: ${f.nextSpawn}` : 'รอบถัดไป: —', cx + 16, cy + 54);
 
-    const slots = f.slots.length ? f.slots.join('  •  ') : '-';
-    ctx.fillStyle = '#6c6c80';
-    ctx.font = '14px sans-serif';
-    ctx.fillText(slots, fx + 16, fy + 66);
+    // slots
+    const slots = f.slots?.length ? f.slots.join('  •  ') : '—';
+    setFont(ctx, 14);
+    ctx.fillStyle = '#61647a';
+    drawEllipsisText(ctx, slots, cx + 16, cy + 74, cardW - 32);
 
-    const col = i % 3;
-    if (col === 2) {
-      fx = 30;
-      fy += fixedRowH + 14;
+    // advance grid
+    const colIdx = (i % fixedCols);
+    if (colIdx === fixedCols - 1) {
+      cx = gridX;
+      cy += fixedCardH + fixedGap;
     } else {
-      fx += cardW + cardPad;
+      cx += cardW + fixedGap;
     }
   });
 
+  // ---- export ----
   return new AttachmentBuilder(Buffer.from(canvas.toBuffer('image/png')), {
     name: 'schedule.png',
   });
 }
 
-/* ---------- helpers (type ถูกต้องเป็น SKRSContext2D) ---------- */
+/* =========================
+   Helpers
+========================= */
+function setFont(ctx: import('@napi-rs/canvas').SKRSContext2D, px: number, weight: 'regular'|'bold'='regular') {
+  const fam = weight === 'bold' ? 'PromptBold' : 'Prompt';
+  ctx.font = `${weight === 'bold' ? 'bold ' : ''}${px}px ${fam}, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawCenter(ctx: SKRSContext2D, text: string, x: number, y: number, w: number, centerY: number) {
+  const metrics = ctx.measureText(text);
+  const tx = x + (w - metrics.width) / 2;
+  ctx.fillText(text, tx, centerY);
+}
+
+function drawSectionHeader(ctx: SKRSContext2D, label: string, x: number, y: number) {
+  // pill
+  const padH = 20;
+  const padV = 8;
+  setFont(ctx, 14, 'bold');
+  const w = ctx.measureText(label).width + padH * 2;
+  ctx.fillStyle = '#f1eaff';
+  roundRect(ctx, x, y, w, 28, 14, true);
+
+  // text
+  ctx.fillStyle = '#5b40d1';
+  ctx.fillText(label, x + padH, y + 20);
+}
+
+function drawBadge(ctx: SKRSContext2D, text: string, x: number, y: number) {
+  setFont(ctx, 14, 'bold');
+  const padX = 10;
+  const h = 24;
+  const w = ctx.measureText(text).width + padX * 2;
+  ctx.fillStyle = '#efeaff';
+  roundRect(ctx, x, y, w, h, 12, true);
+  ctx.fillStyle = '#5b40d1';
+  ctx.fillText(text, x + padX, y + 17);
+}
+
+function drawEllipsisText(ctx: SKRSContext2D, text: string, x: number, y: number, maxW: number) {
+  // single-line ellipsis
+  if (ctx.measureText(text).width <= maxW) {
+    ctx.fillText(text, x, y);
+    return;
+  }
+  let shown = text;
+  while (shown.length > 0 && ctx.measureText(shown + '…').width > maxW) {
+    shown = shown.slice(0, -1);
+  }
+  ctx.fillText(shown + '…', x, y);
+}
 
 function roundRect(
   ctx: SKRSContext2D,
   x: number, y: number, w: number, h: number, r: number,
-  fill = false, stroke = true
+  fill = false, stroke = false
 ) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -182,26 +314,4 @@ function roundRect(
   ctx.closePath();
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
-}
-
-function centerText(ctx: SKRSContext2D, txt: string, cx: number, y: number) {
-  const w = ctx.measureText(txt).width;
-  ctx.fillText(txt, cx - w / 2, y);
-}
-
-function drawBadge(ctx: SKRSContext2D, text: string, x: number, y: number) {
-  const padX = 10;
-  const h = 24;
-  const w = ctx.measureText(text).width + padX * 2;
-  ctx.fillStyle = '#efeaff';
-  roundRect(ctx, x, y, w, h, 12, true, false);
-  ctx.fillStyle = '#5b40d1';
-  ctx.font = 'bold 14px sans-serif';
-  ctx.fillText(text, x + padX, y + 17);
-}
-
-function drawSectionTitle(ctx: SKRSContext2D, text: string, x: number, y: number) {
-  ctx.fillStyle = '#23233a';
-  ctx.font = 'bold 18px sans-serif';
-  ctx.fillText(text, x, y);
 }

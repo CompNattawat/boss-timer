@@ -14,7 +14,7 @@ import { updateScheduleMessage } from '../services/discord.service.js';
 import { scheduleJobs } from '../services/schedule.service.js';
 import cronParser from 'cron-parser';
 import { alertQueue, spawnQueue } from '../scheduler/queues.js';
-import { safeReply } from '../lib/interaction.js';
+import { safeDefer, safeReply } from '../lib/interaction.js';
 
   const TZ = 'Asia/Bangkok';
   
@@ -88,8 +88,11 @@ import { safeReply } from '../lib/interaction.js';
     const gameCode = (i.options.get('game')?.value as string | undefined) ?? 'L9';
   
     if (sub === 'add') {
+        // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
+        await safeDefer(i, false);
+
         if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
-          return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+          return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
     
         const name = i.options.get('name', true).value as string;
         const hours = i.options.get('hours', true).value as number;
@@ -105,7 +108,7 @@ import { safeReply } from '../lib/interaction.js';
           create: { gameId: game.id, name, respawnHours: hours },
         });
         await updateScheduleMessage(gameCode);
-        return await safeReply(i,{ content: `เพิ่ม/อัปเดตบอส **${name}** (${hours}ชม.) แล้ว`, ephemeral: true });
+        return await safeReply(i,{ content: `เพิ่ม/อัปเดตบอส **${name}** (${hours}ชม.) แล้ว` });
     }
     
     if (sub === 'death') {
@@ -115,8 +118,11 @@ import { safeReply } from '../lib/interaction.js';
       const now = dayjs().tz(TZ);
       const [hm, dmy = now.format('DD/MM/YY')] = timeText.trim().split(/\s+/);
       const deathLocal = dayjs.tz(`${dmy} ${hm}`, 'DD/MM/YY HH:mm', TZ);
+      // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
+      await safeDefer(i, false);
+
       if (!deathLocal.isValid())
-        return await safeReply(i,{ content: 'รูปแบบเวลาไม่ถูกต้อง', ephemeral: true });
+        return await safeReply(i,{ content: 'รูปแบบเวลาไม่ถูกต้อง' });
 
       const game = await prisma.game.upsert({
         where: { code: gameCode },
@@ -124,7 +130,7 @@ import { safeReply } from '../lib/interaction.js';
         create: { code: gameCode, name: gameCode },
       });
       const boss = await prisma.boss.findFirst({ where: { gameId: game.id, name } });
-      if (!boss) return await safeReply(i,{ content: `ไม่พบบอสชื่อ "${name}"`, ephemeral: true });
+      if (!boss) return await safeReply(i,{ content: `ไม่พบบอสชื่อ "${name}"` });
 
       // ✅ ถ้ามี fixedRule ใช้ cron คำนวณรอบถัดไปจาก “เวลาตาย”
       let next: Date | null = await getNextFixedSpawn(boss.id, deathLocal.toISOString());
@@ -149,8 +155,11 @@ import { safeReply } from '../lib/interaction.js';
     }
 
     if (sub === 'reset') {
+      // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
+      await safeDefer(i, false);
+
       if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-        return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+        return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
       }
     
       const name = i.options.get('name', true).value as string;
@@ -164,7 +173,7 @@ import { safeReply } from '../lib/interaction.js';
         where: { gameId: game.id, name },
       });
       if (!boss) {
-        return await safeReply(i,{ content: `ไม่พบบอสชื่อ "${name}" ในเกม ${gameCode}`, ephemeral: true });
+        return await safeReply(i,{ content: `ไม่พบบอสชื่อ "${name}" ในเกม ${gameCode}` });
       }
     
       // ลบงานแจ้งเตือน/สแปวนที่ตั้งไว้ของบอสนี้
@@ -183,18 +192,24 @@ import { safeReply } from '../lib/interaction.js';
     }
     
     if (sub === 'reset-all') {
-        if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
-          return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+      // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
+      await safeDefer(i, false);
+
+      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+        return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
     
-        const game = await prisma.game.findUnique({ where: { code: gameCode } });
-        if (game) {
+      const game = await prisma.game.findUnique({ where: { code: gameCode } });
+      if (game) {
           await prisma.boss.updateMany({ where: { gameId: game.id }, data: { lastDeathAt: null, nextSpawnAt: null } });
-        }
-        await updateScheduleMessage(gameCode);
-        return await safeReply(i,{ content: 'รีเซ็ตเวลาบอสทั้งหมดแล้ว', ephemeral: true });
+      }
+      await updateScheduleMessage(gameCode);
+      return await safeReply(i,{ content: 'รีเซ็ตเวลาบอสทั้งหมดแล้ว' });
     }
     
     if (sub === 'table') {
+      // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
+      await safeDefer(i, false);
+
       await updateScheduleMessage(gameCode);
       return await safeReply(i,{ content: 'อัปเดตตารางแล้ว', ephemeral: false });
     }

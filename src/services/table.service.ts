@@ -13,9 +13,6 @@ const TZ = 'Asia/Bangkok';
 // 0..6 (Sun..Sat) -> Thai short
 const TH_DOW = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 
-function fmtHM(d: Date | null | undefined) {
-  return d ? dayjs(d).tz(TZ).format('HH:mm') : '—';
-}
 function fmtDMHM(d: Date | null | undefined) {
   return d ? dayjs(d).tz(TZ).format('DD/MM HH:mm') : '—';
 }
@@ -27,11 +24,6 @@ function padEndW(s: string, w: number) {
   // รองรับอักษรไทย (นับเป็นความยาวแบบคร่าว ๆ)
   const len = [...s].length;
   return s + ' '.repeat(Math.max(0, w - len));
-}
-
-function padStartW(s: string, w: number) {
-  const len = [...s].length;
-  return ' '.repeat(Math.max(0, w - len)) + s;
 }
 
 // แปลง cron slot (เช่น "0 18 * * 2") -> "อ. 18:00"
@@ -59,147 +51,102 @@ function cronToHuman(cron: string, tzLabel: string = TZ) {
   return dayText ? `${dayText} ${hh}:${mm}` : `${hh}:${mm}`;
 }
 
-export async function renderTable(gameCode: string): Promise<string> {
+// type
+type Row = {
+  name: string;
+  rhText: string;
+  lastText: string;
+  nextText: string;
+  fixSlotsText: string;
+};
+
+// แปลง daily bosses -> string table
+function buildDailyTableRows(bosses: any[]): string {
+  const COLS = { name: 16, rh: 5, last: 15, next: 16 };
+  const header =
+    padEndW('ชื่อบอส', COLS.name) + '  ' +
+    padEndW('RH', COLS.rh) + '  ' +
+    padEndW('ตายล่าสุด', COLS.last) + '  ' +
+    padEndW('เกิดรอบถัดไป', COLS.next);
+
+  const sep = '—'.repeat(COLS.name + COLS.rh + COLS.last + COLS.next + 8);
+
+  const body = bosses.map(b => {
+    return padEndW(b.name, COLS.name) + '  ' +
+      padEndW(b.rhText, COLS.rh) + '  ' +
+      padEndW(b.lastText, COLS.last) + '  ' +
+      padEndW(b.nextText, COLS.next);
+  }).join('\n');
+
+  return [header, sep, body || '(ยังไม่มีบอส Daily)', sep].join('\n');
+}
+
+// แปลง fixed bosses -> string table
+function buildFixedTableRows(rows: Row[]): string {
+  const COLS = { name: 16, last: 15, next: 16, fix: 24 };
+  const header =
+    padEndW('ชื่อบอส', COLS.name) + '  ' +
+    padEndW('ตายล่าสุด', COLS.last) + '  ' +
+    padEndW('เกิดรอบถัดไป', COLS.next) + '  ' +
+    padEndW('เวลา FIX', COLS.fix);
+
+  const sep = '—'.repeat(COLS.name + COLS.last + COLS.next + COLS.fix + 8);
+
+  const body = rows.map(r => {
+    return padEndW(r.name, COLS.name) + '  ' +
+      padEndW(r.lastText, COLS.last) + '  ' +
+      padEndW(r.nextText, COLS.next) + '  ' +
+      padEndW(r.fixSlotsText, COLS.fix);
+  }).join('\n');
+
+  return [header, sep, body || '(ยังไม่มีบอส Fixed)', sep].join('\n');
+}
+
+function wrapBlock(s: string) {
+  return '```\n' + s + '\n```';
+}
+
+export async function renderTablesSplit(gameCode: string): Promise<{daily: string, fixed: string}> {
   const game = await prisma.game.findUnique({ where: { code: gameCode } });
-  if (!game) return `ยังไม่มีเกมรหัส **${gameCode}**`;
+  if (!game) return { daily: `ยังไม่มีเกมรหัส **${gameCode}**`, fixed: '' };
 
-  // ดึงบอสทั้งหมดในเกม + fixed rules (enabled เท่านั้น)
-  const bosses = await prisma.boss.findMany({
-    where: { gameId: game.id },
-    orderBy: { name: 'asc' },
-  });
-  if (!bosses.length) return `เกม **${gameCode}** ยังไม่มีบอส (ลอง /boss add)`;
+  const bosses = await prisma.boss.findMany({ where: { gameId: game.id }, orderBy: { name: 'asc' } });
+  const rules = await prisma.fixedRule.findMany({ where: { gameId: game.id, enabled: true }, orderBy: { bossId: 'asc' } });
 
-  const rules = await prisma.fixedRule.findMany({
-    where: { gameId: game.id, enabled: true },
-    orderBy: { bossId: 'asc' },
-  });
-
-  // group rules by bossId
   const rulesByBoss = new Map<string, typeof rules>();
   for (const r of rules) {
     const arr = rulesByBoss.get(r.bossId) ?? [];
     arr.push(r);
     rulesByBoss.set(r.bossId, arr);
   }
-
-  // เตรียมแถว
-  type Row = {
-    name: string;
-    type: 'Daily' | 'Fixed';
-    rhText: string;                  // ชม.เกิดซ้ำ (หรือ —)
-    lastText: string;               // DD/MM HH:mm หรือ —
-    nextText: string;               // YYYY-MM-DD HH:mm หรือ —
-    fixSlotsText: string;           // "อ. 18:00, พฤ. 10:30" หรือ —
-  };
-
-  const now = dayjs();
-
-  const rows: Row[] = [];
-
-  for (const b of bosses) {
-    const fixed = rulesByBoss.get(b.id) ?? [];
-    const isFixed = fixed.length > 0;
-
-    let type: Row['type'] = isFixed ? 'Fixed' : 'Daily';
-
-    // ชม.เกิดซ้ำ
-    const rhText = isFixed ? '—' : (b.respawnHours != null ? String(b.respawnHours) : '—');
-
-    // เวลา FIX (ถ้ามี) -> แปลงเป็น human list สั้น ๆ
-    const fixSlotsText = isFixed
-      ? fixed
-          .map(r => cronToHuman(r.cron, r.tz || TZ))
-          // เอา unique + จำกัดแค่ 2–3 ช่องให้สั้นพออ่าน
-          .filter((v, i, a) => a.indexOf(v) === i)
-          .slice(0, 3)
-          .join(', ') || '—'
-      : '—';
-
-    // last death
-    const lastText = fmtDMHM(b.lastDeathAt);
-
-    // next spawn:
-    // - ถ้า Fixed: หา next occurrence ที่ "ใกล้ที่สุด" จากทุก cron
-    // - ถ้า Daily: ใช้ nextSpawnAt ตามระบบเดิม
-    let nextText = '—';
-    if (isFixed) {
-      let nearest: Date | null = null;
-      for (const r of fixed) {
-        try {
-          const it = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: now.toDate() });
-          const n = it.next().toDate();
-          if (!nearest || n < nearest) nearest = n;
-        } catch {
-          // invalid cron — ข้าม
-        }
-      }
-      nextText = fmtYMDHM(nearest);
-    } else {
-      nextText = fmtYMDHM(b.nextSpawnAt);
-    }
-
-    rows.push({
+    const dailyRows: Row[] = bosses.filter(b => !rulesByBoss.has(b.id)).map(b => ({
       name: b.name,
-      type,
-      rhText,
-      lastText,
-      nextText,
-      fixSlotsText,
+      rhText: String(b.respawnHours ?? '—'),
+      lastText: fmtDMHM(b.lastDeathAt),
+      nextText: fmtYMDHM(b.nextSpawnAt),
+      fixSlotsText: '—'
+    }));
+    
+    const fixedRows: Row[] = bosses.filter(b => rulesByBoss.has(b.id)).map(b => {
+      const rules = rulesByBoss.get(b.id)!;
+      const nearest = rules.map(r => cronParser.parseExpression(r.cron, { tz: r.tz || TZ }).next().toDate())
+                           .sort((a, b) => +a - +b)[0];
+      return {
+        name: b.name,
+        rhText: '—',
+        lastText: fmtDMHM(b.lastDeathAt),
+        nextText: fmtYMDHM(nearest),
+        fixSlotsText: rules.map(r => cronToHuman(r.cron, r.tz || TZ)).join(', ')
+      };
     });
-  }
 
-  // จัดรูปแบบเป็น “ตารางตัวอักษร” ตามตัวอย่าง
-  const title = `📅 ตารางบอส (${gameCode}) — เวลาโซน ${TZ}`;
-  const updated = `อัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`;
+    //จัดรูปแบบเป็น “ตารางตัวอักษร” ตามตัวอย่าง
+    const title = (label: string) =>
+      `📅 ตารางบอส (${gameCode}) — ${label}\nอัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`;
+    const updated = `อัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`;
 
-  // กำหนดความกว้างคอลัมน์ (ตัวอักษร, แบบคร่าว ๆ)
-  const COLS = {
-    name: 16,
-    type: 7,        // Daily/Fixed
-    rh: 10,         // ชม.เกิดซ้ำ
-    last: 15,       // ตายล่าสุด
-    next: 16,       // เกิดรอบถัดไป
-    fix: 24,        // เวลา FIX (ถ้ามี)
-  };
-
-  const header =
-    padEndW('ชื่อบอส', COLS.name) + '  ' +
-    padEndW('ประเภท', COLS.type) + '  ' +
-    padEndW('ชม.เกิดซ้ำ', COLS.rh) + '  ' +
-    padEndW('ตายล่าสุด', COLS.last) + '  ' +
-    padEndW('เกิดรอบถัดไป', COLS.next) + '  ' +
-    padEndW('เวลา FIX (ถ้ามี)', COLS.fix);
-
-  const sep = '—'.repeat(COLS.name + COLS.type + COLS.rh + COLS.last + COLS.next + COLS.fix + 10);
-
-  const body = rows
-    .map(r =>
-      padEndW(r.name, COLS.name) + '  ' +
-      padEndW(r.type, COLS.type) + '  ' +
-      padEndW(r.rhText, COLS.rh) + '  ' +
-      padEndW(r.lastText, COLS.last) + '  ' +
-      padEndW(r.nextText, COLS.next) + '  ' +
-      padEndW(r.fixSlotsText || '—', COLS.fix)
-    )
-    .join('\n');
-
-  const notes =
-    'หมายเหตุ:\n' +
-    '• Daily = ใช้ชั่วโมงเกิดซ้ำคำนวณจากเวลาตายล่าสุด\n' +
-    '• Fixed = ใช้ตาราง FIX (cron) หารอบถัดไป ไม่ใช้ชั่วโมงเกิดซ้ำ\n' +
-    '• คอลัมน์ “เวลา FIX” แสดงรอบอนาคตถัดไป 1–2 ช่องทางลัดให้อ่านง่าย';
-
-  return [
-    title,
-    updated,
-    '',
-    '```',
-    header,
-    sep,
-    body || '(ยังไม่มีบอส)',
-    sep,
-    '```',
-    notes,
-  ].join('\n');
+    return {
+      daily: [title, updated, '', wrapBlock(buildDailyTableRows(dailyRows))].join('\n'),
+      fixed: [wrapBlock(buildFixedTableRows(fixedRows)), 'หมายเหตุ: Fixed = ใช้ตาราง cron ไม่ใช่ respawnHours'].join('\n'),
+    };
 }
