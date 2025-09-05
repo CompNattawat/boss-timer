@@ -26,25 +26,25 @@ export type ScheduleImageInput = {
   fixed: FixedRow[];
 };
 
-function registerThaiFonts() {
-  const base = '/app/fonts/Prompt'; // ชี้ไปที่โฟลเดอร์ใน container
-  const candidates = [
+export function registerThaiFonts() {
+  const base = path.resolve('/app/fonts/Prompt');
+  const candidates: [string, string][] = [
     ['Prompt-Regular.ttf', 'Prompt'],
     ['Prompt-Bold.ttf', 'PromptBold'],
-    // มีไฟล์ไหนเพิ่ม ก็ map ได้ เช่น Medium/SemiBold
   ];
 
   for (const [file, family] of candidates) {
     const p = path.join(base, file);
     if (fs.existsSync(p)) {
       try {
-        GlobalFonts.register(p, family);
-        console.log(`[fonts] registered ${family} -> ${p}`);
+        // ✅ family เป็น string
+        GlobalFonts.registerFromPath(p, family);
+        console.log(`[fonts] ✅ registered ${family} -> ${p}`);
       } catch (e) {
-        console.warn(`[fonts] failed ${family}:`, e);
+        console.warn(`[fonts] ⚠️ failed ${family}:`, e);
       }
     } else {
-      console.warn(`[fonts] not found: ${p}`);
+      console.warn(`[fonts] ❌ not found: ${p}`);
     }
   }
 }
