@@ -4,11 +4,12 @@ import {
     ChatInputCommandInteraction,
     PermissionFlagsBits,
     ChannelType,
-    GuildTextBasedChannel,
+    MessageFlags, 
+    type GuildTextBasedChannel
   } from 'discord.js';
-  import { prisma } from '../lib/prisma.js';
-  import { safeDefer, safeReply, safeFollowUp } from '../lib/interaction.js';
-import { ensureGuild } from '../services/guild.service.js';
+import { prisma } from '../lib/prisma.js';
+import { safeDefer, safeReply, safeFollowUp } from '../lib/interaction.js';
+import { ensureGuild, setScheduleChannel } from '../services/guild.service.js';
   
   export const data = new SlashCommandBuilder()
   .setName('config')
@@ -53,27 +54,27 @@ import { ensureGuild } from '../services/guild.service.js';
   
     if (sub === 'channel') {
       if (!i.inGuild() || !i.guildId) {
-        return safeReply(i, { content: 'ต้องใช้ในเซิร์ฟเวอร์เท่านั้น', flags: 64 }); // ephemeral
+        return safeReply(i, { content: 'ต้องใช้ในเซิร์ฟเวอร์เท่านั้น', flags: MessageFlags.Ephemeral as number  });
       }
-  
-      // รองรับทั้งกรณีเลือก channel มา และไม่เลือก (fallback = ห้องปัจจุบัน)
-   // รองรับทั้งกรณีเลือก channel มา และไม่เลือก (fallback = ห้องปัจจุบัน)
-    const pickedOpt = i.options.get('channel'); // ไม่บังคับ
-    const ch = (pickedOpt?.channel ?? i.channel) as GuildTextBasedChannel | null;
+    
+      // ดึง option แบบ cross-version
+      const picked = i.options.get('channel', true).channel;
+      const ch = picked as GuildTextBasedChannel | null;
 
-    if (!ch || !ch.isTextBased() || ch.isDMBased()) {
-      return safeReply(i, { content: 'กรุณาเลือก **Text Channel** ในกิลด์', flags: 64 });
-    }
+      // เช็กว่าเป็น text-based ของกิลด์เท่านั้น
+      if (
+        !ch ||
+        (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.GuildAnnouncement)
+      ) {
+        return safeReply(i, { content: 'กรุณาเลือก **Text Channel** ในกิลด์', flags: 64 });
+      }
 
-    const g = await ensureGuild(i.guildId!);
-
-    await prisma.guild.update({
-      where: { id: g.id },
-      data: { scheduleChannelId: ch.id, scheduleMessageId: null },
-    });
-
-    await safeReply(i, { content: `✅ ตั้งค่าช่องตารางเป็น <#${ch.id}> แล้ว`, flags: 64 });
-    await safeFollowUp(i, { content: 'ตารางบอสจะอัปเดตอัตโนมัติเมื่อมีการเปลี่ยนแปลง' });
+    
+      // ใช้ service ช่วยเก็บค่า
+      await setScheduleChannel(i.guildId, ch.id);
+    
+      await safeReply(i, { content: `✅ ตั้งค่าช่องตารางเป็น <#${ch.id}> แล้ว`, flags: MessageFlags.Ephemeral as number });
+      await safeFollowUp(i, { content: 'ตารางบอสจะอัปเดตอัตโนมัติเมื่อมีการเปลี่ยนแปลง' });
       return;
     }
   
@@ -94,8 +95,8 @@ import { ensureGuild } from '../services/guild.service.js';
         data: { gameId: game.id },
       });
   
-      return safeReply(i, { content: `✅ ตั้งค่าเกมดีฟอลต์ของกิลด์เป็น **${code}** แล้ว`, ephemeral: true });
+      return safeReply(i, { content: `✅ ตั้งค่าเกมดีฟอลต์ของกิลด์เป็น **${code}** แล้ว`});
     }
   
-    return safeReply(i, { content: 'ซับคอมมานด์ไม่ถูกต้อง', ephemeral: true });
+    return safeReply(i, { content: 'ซับคอมมานด์ไม่ถูกต้อง' });
   }
