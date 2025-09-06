@@ -12,13 +12,41 @@ import { ENV } from '../lib/env.js';
 import cronParser from 'cron-parser';
 import { scheduleJobs } from '../services/schedule.service.js';
 import { client } from '../lib/client.js';
-import { GuildTextBasedChannel } from 'discord.js';
+import type { GuildTextBasedChannel } from 'discord.js';
+
+const TZ = ENV.TZ || 'Asia/Bangkok';
+
+/** ส่งข้อความไปทุกกิลด์ที่ผูกกับ gameId และตั้งค่า scheduleChannelId ไว้แล้ว */
+async function broadcastToGameGuilds(gameId: string, text: string) {
+  // platform='discord' และมี scheduleChannelId
+  const guilds = await prisma.guild.findMany({
+    where: {
+      platform: 'discord',
+      gameId,
+      scheduleChannelId: { not: null },
+    },
+    select: { scheduleChannelId: true },
+  });
+
+  for (const g of guilds) {
+    if (!g.scheduleChannelId) continue;
+    try {
+      const raw = await client.channels.fetch(g.scheduleChannelId);
+      const chan = raw as GuildTextBasedChannel | null;
+      if (chan && chan.isTextBased()) {
+        await chan.send(text);
+      }
+    } catch (e) {
+      console.warn(`[worker] send fail to channel ${g.scheduleChannelId}:`, e);
+    }
+  }
+}
 
 async function start() {
   await client.login(ENV.DISCORD_TOKEN);
   console.log('Worker Discord client logged in');
 
-  // สร้าง Worker เมื่อ client พร้อมแล้ว
+  // ⏰ แจ้งเตือนก่อนเกิด 10 นาที
   new Worker(
     'alert',
     async job => {
@@ -26,17 +54,19 @@ async function start() {
         bossId: string; bossName: string; nextSpawnISO: string;
       };
 
-      const raw = await client.channels.fetch(ENV.DISCORD_SCHEDULE_CHANNEL_ID);
-      const chan = raw as GuildTextBasedChannel;
-      if (!chan || !chan.isTextBased()) return;
+      const boss = await prisma.boss.findUnique({
+        where: { id: bossId },
+        select: { gameId: true },
+      });
+      if (!boss) return;
 
-      await chan.send(
-        `⏰ อีก 10 นาที **${bossName}** จะเกิด (${dayjs(nextSpawnISO).tz(ENV.TZ).format('DD/MM/YY HH:mm')})`
-      );
+      const text = `⏰ อีก 10 นาที **${bossName}** จะเกิด (${dayjs(nextSpawnISO).tz(TZ).format('DD/MM/YY HH:mm')})`;
+      await broadcastToGameGuilds(boss.gameId, text);
     },
     { connection: redis }
   );
 
+  // 🎯 แจ้งตอนเกิดจริง
   new Worker(
     'spawn',
     async job => {
@@ -44,26 +74,27 @@ async function start() {
         bossId: string; bossName: string; nextSpawnISO: string;
       };
 
-      const raw = await client.channels.fetch(ENV.DISCORD_SCHEDULE_CHANNEL_ID);
-      const chan = raw as GuildTextBasedChannel;
-      if (!chan || !chan.isTextBased()) return;
+      const boss = await prisma.boss.findUnique({
+        where: { id: bossId },
+        select: { gameId: true },
+      });
+      if (!boss) return;
 
-      await chan.send(
-        `🎯 **${bossName}** เกิดแล้ว (${dayjs(nextSpawnISO).tz(ENV.TZ).format('DD/MM/YY HH:mm')})`
-      );
+      const text = `🎯 **${bossName}** เกิดแล้ว (${dayjs(nextSpawnISO).tz(TZ).format('DD/MM/YY HH:mm')})`;
+      await broadcastToGameGuilds(boss.gameId, text);
 
       await prisma.jobLog.updateMany({
         where: { bossId, runAt: new Date(nextSpawnISO), type: 'spawn' },
         data: { status: 'completed' },
       });
 
-      // ถ้า updateScheduleMessage ต้องการ gameCode ให้ใส่ตามที่ระบบคุณกำหนด
-      await import('../services/discord.service.js')
-        .then(m => m.updateScheduleMessage());
+      // ถ้าคุณมีฟังก์ชันอัปเดตตารางต่อกิลด์ แนะนำให้เรียกที่นี่แบบ loop ตามกิลด์
+      // เช่น updateScheduleForGuild(guildExternalId) เป็นต้น
     },
     { connection: redis }
   );
 
+  // 🧭 fixed-rule tick: คำนวณรอบถัดไปให้บอสที่ใช้ cron
   async function tickFixed() {
     const rules = await prisma.fixedRule.findMany({
       where: { enabled: true },
@@ -72,7 +103,7 @@ async function start() {
 
     for (const r of rules) {
       try {
-        const it = cronParser.parseExpression(r.cron, { tz: r.tz || ENV.TZ });
+        const it = cronParser.parseExpression(r.cron, { tz: r.tz || TZ });
         const next = it.next().toDate();
         if (r.nextPreparedAt && Math.abs(+r.nextPreparedAt - +next) < 30_000) continue;
 
@@ -80,7 +111,9 @@ async function start() {
           where: { id: r.bossId },
           data: { nextSpawnAt: next },
         });
+
         await scheduleJobs(r.bossId, r.boss.name, next.toISOString());
+
         await prisma.fixedRule.update({
           where: { id: r.id },
           data: { nextPreparedAt: next },

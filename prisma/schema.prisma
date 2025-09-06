@@ -18,16 +18,16 @@ model Game {
 }
 
 model Guild {
-  id                 String   @id @default(cuid())
-  platform           String
-  externalId         String
-  game               Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  gameId             String
-  scheduleChannelId  String?
-  scheduleMessageId  String?
-  createdAt          DateTime @default(now())
+  id                String   @id @default(cuid())
+  platform          String   // 'discord'
+  externalId        String   // guild.id
+  scheduleChannelId String?
+  scheduleMessageId String?
+  defaultGameCode   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  @@unique([platform, externalId])
+  @@unique([platform, externalId]) // ชื่อ key จะถูกสร้างเป็น platform_externalId
 }
 
 model Boss {

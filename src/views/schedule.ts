@@ -6,9 +6,9 @@ import { ENV } from '../lib/env.js';
 
 dayjs.extend(relativeTime);
 
-export async function buildScheduleEmbeds() {
+export async function buildScheduleEmbeds(gameCode?: string) {
   const bosses = await prisma.boss.findMany({
-    where: { gameId: ENV.DEFAULT_GAME_CODE },
+    where: { gameId: gameCode ?? ENV.DEFAULT_GAME_CODE },
     orderBy: { name: 'asc' },
   });
 

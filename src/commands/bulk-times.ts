@@ -57,10 +57,12 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
   };
   
   export async function execute(i: ChatInputCommandInteraction) {
+    if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
+    }
+
     await safeDefer(i, true);
 
-    
-  
     // อ่านออปชัน
     const mode = (optStr(i, 'mode', true) as 'apply' | 'dry-run');
     // @ts-ignore (รองรับทั้ง type เก่า/ใหม่)

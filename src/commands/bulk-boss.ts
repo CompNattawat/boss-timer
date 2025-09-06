@@ -39,6 +39,10 @@ import { getAttachmentOption } from '../lib/attachments.js';
   );
   
   export async function execute(i: ChatInputCommandInteraction) {
+    if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
+    }
+
     await safeDefer(i, true); // ทำงานนาน ใช้ ephemeral
   
     const mode = (i.options.get('mode')?.value as string | undefined) as Row['action'];

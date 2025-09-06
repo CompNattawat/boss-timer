@@ -1,8 +1,8 @@
+// scripts/deploy-commands.ts
 import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
 
 const appId = process.env.DISCORD_APP_ID!;
-const guildId = process.env.DISCORD_GUILD_ID!;
 const token = process.env.DISCORD_TOKEN!;
 
 const commands = [
@@ -19,11 +19,12 @@ const commands = [
 async function main() {
   const rest = new REST({ version: '10' }).setToken(token);
 
-  console.log('⏳ Registering slash commands...');
-  await rest.put(Routes.applicationGuildCommands(appId, guildId), {
-    body: commands,
-  });
-  console.log('✅ Slash commands registered');
+  console.log('⏳ Registering GLOBAL slash commands...');
+  await rest.put(
+    Routes.applicationCommands(appId), // ✅ ใช้ appId ไม่ใช่ clientId
+    { body: commands },
+  );
+  console.log('✅ Global slash commands registered');
 }
 
 main().catch(console.error);

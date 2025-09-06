@@ -10,7 +10,7 @@ import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(customParse); dayjs.extend(timezone); dayjs.extend(utc);
   
 import { prisma } from '../lib/prisma.js';
-import { updateScheduleMessage } from '../services/discord.service.js';
+import { postScheduleMessageForGuild } from '../services/discord.service.js';
 import { scheduleJobs } from '../services/schedule.service.js';
 import cronParser from 'cron-parser';
 import { alertQueue, spawnQueue } from '../scheduler/queues.js';
@@ -93,6 +93,11 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
   
   export async function execute(i: ChatInputCommandInteraction) {
     const sub = i.options.getSubcommand();
+    const guildId = i.guildId;
+    if (!guildId) {
+      return safeReply(i, { content: 'ใช้ได้เฉพาะในเซิร์ฟเวอร์' });
+    }
+
     const gameCode = (i.options.get('game')?.value as string | undefined) ?? 'L9';
   
     if (sub === 'add') {
@@ -115,7 +120,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
           update: { respawnHours: hours },
           create: { gameId: game.id, name, respawnHours: hours },
         });
-        await updateScheduleMessage(gameCode);
+        await postScheduleMessageForGuild(guildId, gameCode);
         return await safeReply(i,{ content: `เพิ่ม/อัปเดตบอส **${name}** (${hours}ชม.) แล้ว` });
     }
 
@@ -141,7 +146,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       await prisma.fixedRule.deleteMany({ where: { bossId: boss.id } });
       await prisma.boss.delete({ where: { id: boss.id } });
 
-      await updateScheduleMessage(gameCode);
+      await postScheduleMessageForGuild(guildId, gameCode);
       return await safeReply(i, { content: `ลบบอส **${name}** แล้ว` });
     }
     
@@ -180,7 +185,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       });
 
       await scheduleJobs(boss.id, boss.name, next.toISOString());
-      await updateScheduleMessage(gameCode);
+      await postScheduleMessageForGuild(guildId, gameCode);
 
       return await safeReply(i,{
         content: `บันทึกตาย **${boss.name}** เวลา ${deathLocal.format('DD/MM/YY HH:mm')} แล้ว\nรอบเกิดถัดไป: ${dayjs(next).tz(TZ).format('DD/MM/YY HH:mm')}`,
@@ -220,8 +225,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       });
     
       // อัปเดตตารางในแชนแนล
-      await updateScheduleMessage(gameCode);
-    
+      await postScheduleMessageForGuild(guildId, gameCode);
       return await safeReply(i,{ content: `รีเซ็ตเวลา **${boss.name}** แล้ว`, ephemeral: false });
     }
     
@@ -236,7 +240,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       if (game) {
           await prisma.boss.updateMany({ where: { gameId: game.id }, data: { lastDeathAt: null, nextSpawnAt: null } });
       }
-      await updateScheduleMessage(gameCode);
+      await postScheduleMessageForGuild(guildId, gameCode);
       return await safeReply(i,{ content: 'รีเซ็ตเวลาบอสทั้งหมดแล้ว' });
     }
     
@@ -244,7 +248,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
       await safeDefer(i, false);
 
-      await updateScheduleMessage(gameCode);
+      await postScheduleMessageForGuild(guildId, gameCode);
       return await safeReply(i,{ content: 'อัปเดตตารางแล้ว', ephemeral: false });
     }
   }
