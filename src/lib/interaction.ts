@@ -1,48 +1,55 @@
-// lib/interaction.ts
+// src/lib/interaction.ts
 import {
-    ChatInputCommandInteraction,
-    MessageFlags,
-    InteractionReplyOptions,
-    InteractionEditReplyOptions,
-  } from 'discord.js';
-  
-  export async function safeDefer(i: ChatInputCommandInteraction, ephemeral = false) {
-    if (!i.deferred && !i.replied) {
-      await i.deferReply({
-        // ใช้ flags เฉพาะตอน defer เท่านั้น
-        flags: ephemeral ? MessageFlags.Ephemeral : undefined,
-      });
-    }
+  ChatInputCommandInteraction,
+  InteractionReplyOptions,
+  InteractionEditReplyOptions,
+  MessagePayload,
+} from 'discord.js';
+
+type Replyable =
+  | string
+  | MessagePayload
+  | (InteractionReplyOptions & InteractionEditReplyOptions);
+
+/** defer แบบปลอดภัย: ถ้าเคย defer/reply แล้วจะไม่ทำซ้ำ และไม่โยน error */
+export async function safeDefer(
+  i: ChatInputCommandInteraction,
+  ephemeral = false
+): Promise<boolean> {
+  if (i.deferred || i.replied) return false;
+  try {
+    await i.deferReply({ ephemeral });
+    return true;
+  } catch (e: any) {
+    // ถ้า interaction ถูก acknowledge ไปแล้ว ก็ถือว่า defer ไม่จำเป็น
+    return false;
   }
-  
-  // ตัด fields ที่ editReply รับไม่ได้
-  function toEditOptions(opts: InteractionReplyOptions | InteractionEditReplyOptions): InteractionEditReplyOptions {
-    const { ephemeral, flags, ...rest } = opts as any;
-    return rest as InteractionEditReplyOptions;
+}
+
+/** ตอบกลับแบบเดียว ใช้ได้ทั้งก่อน/หลัง defer และหลัง reply */
+export async function safeReply(
+  i: ChatInputCommandInteraction,
+  options: Replyable
+) {
+  // ถ้าเคย defer ให้แก้ไขข้อความที่ defer ไว้
+  if (i.deferred) {
+    return i.editReply(options as InteractionEditReplyOptions);
   }
-  
-  export async function safeReply(
-    i: ChatInputCommandInteraction,
-    opts: InteractionReplyOptions | InteractionEditReplyOptions
-  ) {
-    try {
-      if (i.deferred) {
-        // editReply ต้องไม่มี ephemeral/flags
-        return await i.editReply(toEditOptions(opts));
-      }
-      if (i.replied) {
-        // followUp รับแบบเดียวกับ reply ได้
-        return await i.followUp(opts as InteractionReplyOptions);
-      }
-      return await i.reply(opts as InteractionReplyOptions);
-    } catch (e) {
-      console.error('safeReply error:', e);
-      // fallback เผื่อเจอ race เล็ก ๆ
-      try {
-        if (!i.replied) return await i.reply(opts as InteractionReplyOptions);
-        return await i.followUp(opts as InteractionReplyOptions);
-      } catch (e2) {
-        console.error('safeReply fallback error:', e2);
-      }
-    }
+  // ถ้าเคย reply ไปแล้ว ให้ตามด้วย followUp
+  if (i.replied) {
+    return i.followUp(options as InteractionReplyOptions);
   }
+  // ยังไม่เคยตอบเลย -> reply ปกติ
+  return i.reply(options as InteractionReplyOptions);
+}
+
+/** ส่งต่อข้อความเพิ่มเติมอย่างปลอดภัย (หลัง reply/defer แล้ว) */
+export async function safeFollowUp(
+  i: ChatInputCommandInteraction,
+  options: Replyable
+) {
+  if (i.deferred || i.replied) {
+    return i.followUp(options as InteractionReplyOptions);
+  }
+  return i.reply(options as InteractionReplyOptions);
+}

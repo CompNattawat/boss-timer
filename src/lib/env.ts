@@ -12,6 +12,8 @@ export const ENV = {
   TZ: process.env.TZ ?? 'Asia/Bangkok',
   DATABASE_URL: required('DATABASE_URL'),
 
+  SERVICE_ROLE: required('SERVICE_ROLE'),
+  COMMAND_SCOPE: required('COMMAND_SCOPE') ?? 'global',
   // เลือกได้ 2 ทาง: ใช้ URL เดียว หรือใช้ชุด HOST/PORT/USER/PASS
   REDIS_URL: process.env.REDIS_URL,         // เช่น rediss://default:pass@host:6380
   REDISPASSWORD: process.env.REDISPASSWORD, // เผื่อกรณีสร้างจาก HOST/PORT
