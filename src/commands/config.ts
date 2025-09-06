@@ -8,24 +8,33 @@ import {
   } from 'discord.js';
   import { prisma } from '../lib/prisma.js';
   import { safeDefer, safeReply, safeFollowUp } from '../lib/interaction.js';
+import { ensureGuild } from '../services/guild.service.js';
   
   export const data = new SlashCommandBuilder()
   .setName('config')
-  .setDescription('ตั้งค่าบอทในกิลด์นี้')
+  .setDescription('ตั้งค่าบอทสำหรับกิลด์นี้')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand(sc =>
     sc.setName('channel')
-      .setDescription('กำหนดช่องสำหรับโพสต์ตาราง')
+      .setDescription('ตั้งค่าช่องสำหรับตารางบอส')
       .addChannelOption(o =>
-        o.setName('target')
-         .setDescription('เลือก text channel')
-         .addChannelTypes(ChannelType.GuildText)
-         .setRequired(true)
+        o.setName('channel')
+          .setDescription('เลือก Text Channel สำหรับโพสต์ตาราง')
+          .addChannelTypes(
+            ChannelType.GuildText,
+            ChannelType.GuildAnnouncement,
+            ChannelType.PublicThread,
+            ChannelType.PrivateThread,
+          )
+          .setRequired(false) // ✅ อนุญาตไม่ใส่ → จะ fallback เป็นห้องที่สั่ง
       )
   )
-  .addSubcommand(sc => sc
-    .setName('game')
-    .setDescription('ตั้งค่า default game code')
-    .addStringOption(o => o.setName('code').setDescription('โค้ดเกม เช่น L9').setRequired(true))
+  .addSubcommand(sc =>
+    sc.setName('message')
+      .setDescription('ผูก Message ID ของโพสต์ตารางที่มีอยู่แล้ว')
+      .addStringOption(o =>
+        o.setName('message_id').setDescription('Message ID').setRequired(true)
+      )
   );
 
   export async function execute(i: ChatInputCommandInteraction) {
@@ -42,38 +51,30 @@ import {
     const sub = i.options.getSubcommand();
     await safeDefer(i, true); // defer แบบ ephemeral
   
-    // helper: upsert ระเบียน guild (platform+externalId เป็น unique)
-    const ensureGuild = async () => {
-      return prisma.guild.upsert({
-        where: { platform_externalId: { platform: 'discord', externalId: i.guildId! } },
-        update: {},
-        create: { platform: 'discord', externalId: i.guildId!, gameId: '', scheduleChannelId: null, scheduleMessageId: null },
-      });
-    };
-  
     if (sub === 'channel') {
-      const opt = i.options.get('channel', true);
-      const ch = opt.channel as GuildTextBasedChannel | null;
-      // ต้องเป็น text-based และไม่ใช่ DM
-      if (!ch || !ch.isTextBased() || ch.isDMBased()) {
-        return i.reply({ content: 'กรุณาเลือก **Text Channel** ในกิลด์', ephemeral: true });
+      if (!i.inGuild() || !i.guildId) {
+        return safeReply(i, { content: 'ต้องใช้ในเซิร์ฟเวอร์เท่านั้น', flags: 64 }); // ephemeral
       }
   
-      // บันทึก channel id
-      const g = await ensureGuild();
-      await prisma.guild.update({
-        where: { id: g.id },
-        data: { scheduleChannelId: ch.id },
-      });
-  
-      // เคลียร์ messageId เก่า (กันหลง)
-      await prisma.guild.update({
-        where: { id: g.id },
-        data: { scheduleMessageId: null },
-      }).catch(() => {});
-  
-      await safeReply(i, { content: `✅ ตั้งค่าช่องตารางเป็น <#${ch.id}> แล้ว`, ephemeral: true });
-      await safeFollowUp(i, { content: "ตารางบอสจะอัปเดตอัตโนมัติทุกครั้งที่มีการเปลี่ยนแปลง" });
+      // รองรับทั้งกรณีเลือก channel มา และไม่เลือก (fallback = ห้องปัจจุบัน)
+   // รองรับทั้งกรณีเลือก channel มา และไม่เลือก (fallback = ห้องปัจจุบัน)
+    const pickedOpt = i.options.get('channel'); // ไม่บังคับ
+    const ch = (pickedOpt?.channel ?? i.channel) as GuildTextBasedChannel | null;
+
+    if (!ch || !ch.isTextBased() || ch.isDMBased()) {
+      return safeReply(i, { content: 'กรุณาเลือก **Text Channel** ในกิลด์', flags: 64 });
+    }
+
+    const g = await ensureGuild(i.guildId!);
+
+    await prisma.guild.update({
+      where: { id: g.id },
+      data: { scheduleChannelId: ch.id, scheduleMessageId: null },
+    });
+
+    await safeReply(i, { content: `✅ ตั้งค่าช่องตารางเป็น <#${ch.id}> แล้ว`, flags: 64 });
+    await safeFollowUp(i, { content: 'ตารางบอสจะอัปเดตอัตโนมัติเมื่อมีการเปลี่ยนแปลง' });
+      return;
     }
   
     if (sub === 'game') {
@@ -87,7 +88,7 @@ import {
       });
   
       // ผูกกิลด์กับเกมนี้เป็นดีฟอลต์
-      const g = await ensureGuild();
+      const g = await ensureGuild(game.id!);
       await prisma.guild.update({
         where: { id: g.id },
         data: { gameId: game.id },
