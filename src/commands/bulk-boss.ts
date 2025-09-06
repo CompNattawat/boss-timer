@@ -67,7 +67,7 @@ import { getAttachmentOption } from '../lib/attachments.js';
     for (const raw of rows) {
       const action = (mode ?? raw.action ?? 'add') as Row['action'];
       const name = (raw.name ?? '').trim();
-      const gameCode = (raw.game ?? ENV.DEFAULT_GAME_CODE).trim();
+      const gameCode = (raw.game ?? ENV.DEFAULT_GAME_CODE!).trim();
       if (!action || !name) {
         result.error++; result.logs.push(`❌ missing action/name: ${JSON.stringify(raw)}`); continue;
       }

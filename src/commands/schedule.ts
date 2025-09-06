@@ -63,7 +63,7 @@ export async function execute(i: ChatInputCommandInteraction) {
     await safeDefer(i, false);
 
     const gameCode =
-      (i.options.get('game')?.value as string | undefined) ?? ENV.DEFAULT_GAME_CODE;
+      (i.options.get('game')?.value as string | undefined) ?? ENV.DEFAULT_GAME_CODE!;
     const format =
       (i.options.get('format')?.value as string | undefined) ?? 'image';
 
