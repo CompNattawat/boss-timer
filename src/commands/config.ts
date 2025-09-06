@@ -66,7 +66,7 @@ import { ensureGuild, setScheduleChannel } from '../services/guild.service.js';
         !ch ||
         (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.GuildAnnouncement)
       ) {
-        return safeReply(i, { content: 'กรุณาเลือก **Text Channel** ในกิลด์', flags: 64 });
+        return safeReply(i, { content: 'กรุณาเลือก **Text Channel** ในกิลด์', flags: MessageFlags.Ephemeral as number });
       }
 
     
