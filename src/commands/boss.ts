@@ -2,6 +2,11 @@ import {
     ChatInputCommandInteraction,
     SlashCommandBuilder,
     PermissionFlagsBits,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    MessageFlags,
+    ComponentType,
   } from 'discord.js';
 import dayjs from 'dayjs';
 import customParse from 'dayjs/plugin/customParseFormat.js';
@@ -229,19 +234,71 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       return await safeReply(i,{ content: `รีเซ็ตเวลา **${boss.name}** แล้ว`, ephemeral: false });
     }
     
-    if (sub === 'reset-all') {
-      // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
-      await safeDefer(i, false);
-
-      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
-        return await safeReply(i,{ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์' });
     
-      const game = await prisma.game.findUnique({ where: { code: gameCode } });
-      if (game) {
-          await prisma.boss.updateMany({ where: { gameId: game.id }, data: { lastDeathAt: null, nextSpawnAt: null } });
+    if (sub === 'reset-all') {
+      // อย่า defer ตรงนี้ เพราะเราจะส่งปุ่มยืนยันก่อน
+      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        return i.reply({ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', flags: MessageFlags.Ephemeral });
       }
-      await postScheduleMessageForGuild(guildId, gameCode);
-      return await safeReply(i,{ content: 'รีเซ็ตเวลาบอสทั้งหมดแล้ว' });
+
+      const guildId = i.guildId!;
+      const gameCode = (i.options.get('game')?.value as string | undefined) ?? 'L9';
+
+      // ปุ่มยืนยัน
+      const opId = `resetall:${Date.now()}`;
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`${opId}:confirm`).setLabel('ยืนยันรีเซ็ตทั้งหมด').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`${opId}:cancel`).setLabel('ยกเลิก').setStyle(ButtonStyle.Secondary),
+      );
+
+      await i.reply({
+        content: `ยืนยันรีเซ็ตเวลาบอสทั้งหมดของเกม **${gameCode}** ?\n• บอสปกติ → ตั้งเกิดถัดไปเป็น “เวลาตอนนี้”\n• บอสแบบ fixed-time → ไม่ถูกเปลี่ยนแปลง`,
+        components: [row],
+        flags: MessageFlags.Ephemeral,
+      });
+
+      try {
+        const msg = await i.fetchReply();
+        const btn = await msg.awaitMessageComponent({
+          componentType: ComponentType.Button,
+          time: 15_000,
+          filter: (b) => b.user.id === i.user.id && b.customId.startsWith(opId),
+        });
+
+        // ผู้ใช้กดปุ่มแล้ว
+        if (btn.customId.endsWith(':cancel')) {
+          await btn.update({ content: '❎ ยกเลิกแล้ว', components: [] });
+          return;
+        }
+
+        // ยืนยัน → deferUpdate ก่อน (กัน timeout)
+        await btn.deferUpdate();
+
+        const game = await prisma.game.findUnique({ where: { code: gameCode } });
+        if (game) {
+          // บอสปกติเท่านั้น (สมมุติใช้ฟิลด์ isFixed แยก; ถ้าโปรเจกต์คุณใช้วิธีอื่น ปรับ where ตามนั้น)
+          const now = new Date();
+          await prisma.boss.updateMany({
+            where: { gameId: game.id },                // <— ตัด isFixed ออก
+            data:  { lastDeathAt: null, nextSpawnAt: now },
+          });
+        }
+
+        // อัปเดตข้อความตารางประจำกิลด์
+        await postScheduleMessageForGuild(guildId, gameCode);
+
+        await i.editReply({ content: `✅ รีเซ็ตเวลาบอสทั้งหมดของ **${gameCode}** เรียบร้อย`, components: [] });
+      } catch (err: any) {
+        // หมดเวลา/ผิดพลาด
+        if (String(err?.message || '').includes('time')) {
+          await i.editReply({ content: '⌛ หมดเวลา ไม่ได้รีเซ็ต', components: [] }).catch(() => {});
+        } else {
+          console.error('reset-all error:', err);
+          await i.editReply({ content: 'เกิดข้อผิดพลาดระหว่างรีเซ็ต', components: [] }).catch(() => {});
+        }
+      }
+
+      return;
     }
     
     if (sub === 'table') {
