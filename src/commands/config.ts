@@ -7,7 +7,7 @@ import {
     GuildTextBasedChannel,
   } from 'discord.js';
   import { prisma } from '../lib/prisma.js';
-  import { safeDefer, safeReply } from '../lib/interaction.js';
+  import { safeDefer, safeReply, safeFollowUp } from '../lib/interaction.js';
   
   export const data = new SlashCommandBuilder()
   .setName('config')
@@ -72,7 +72,8 @@ import {
         data: { scheduleMessageId: null },
       }).catch(() => {});
   
-      return safeReply(i, { content: `✅ ตั้งค่าช่องตารางเป็น <#${ch.id}> แล้ว`, ephemeral: true });
+      await safeReply(i, { content: `✅ ตั้งค่าช่องตารางเป็น <#${ch.id}> แล้ว`, ephemeral: true });
+      await safeFollowUp(i, { content: "ตารางบอสจะอัปเดตอัตโนมัติทุกครั้งที่มีการเปลี่ยนแปลง" });
     }
   
     if (sub === 'game') {
