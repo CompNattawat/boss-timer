@@ -21,6 +21,8 @@ model Guild {
   id                String   @id @default(cuid())
   platform          String   // 'discord'
   externalId        String   // guild.id
+  game              Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId            String
   scheduleChannelId String?
   scheduleMessageId String?
   defaultGameCode   String?
