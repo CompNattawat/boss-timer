@@ -68,9 +68,9 @@ const THEME = {
   headerGradBot: '#EC4899',
   headerCard: '#FFFFFF',
 
-  text: '#111827',       // primary
-  textSub: '#4B5563',    // secondary
-  textDim: '#6B7280',    // tertiary
+  text: '#111827',
+  textSub: '#4B5563',
+  textDim: '#6B7280',
 
   tableBg: '#FFFFFF',
   tableHeaderBg: '#EEF2FF',
@@ -81,8 +81,12 @@ const THEME = {
   badgeBg: '#EEF2FF',
   badgeText: '#4F46E5',
 
-  ok: '#065F46',         // green-800
-  okSoft: '#10B981',     // emerald-500
+  ok: '#065F46',        // for nextSpawn text
+  okSoft: '#10B981',    // green-500 (badge text)
+  okBg: '#DCFCE7',      // green-100 (badge bg)
+
+  danger: '#EF4444',    // red-500 (badge text)
+  dangerBg: '#FEE2E2',  // red-100 (badge bg)
 
   card: '#FFFFFF',
   cardShadow: 'rgba(0,0,0,0.08)',
@@ -90,20 +94,26 @@ const THEME = {
   slotBadgeText: '#374151',
 };
 
+// ---- helpers (แทนของเดิมทั้งฟังก์ชัน) ----
 function statusOf(next?: string) {
   if (!next) return { label: 'รอเกิด', live: false };
   const isLive = dayjs().isAfter(dayjs(next));
   return { label: isLive ? 'เกิด' : 'รอเกิด', live: isLive };
 }
-
-function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
+function drawStatusPill(
+  ctx: SKRSContext2D,
+  text: string,
+  x: number,
+  y: number,
+  live: boolean
+) {
   const padX = 10;
   const h = 24;
   setFont(ctx, 13, true);
   const w = ctx.measureText(text).width + padX * 2;
-  ctx.fillStyle = live ? '#DCFCE7' /* green-100 */ : '#F3F4F6' /* gray-100 */;
+  ctx.fillStyle = live ? THEME.okBg : THEME.dangerBg;
   roundRect(ctx, x, y, w, h, 12, true, false);
-  ctx.fillStyle = live ? THEME.okSoft : THEME.textDim;
+  ctx.fillStyle = live ? THEME.okSoft : THEME.danger;
   ctx.fillText(text, x + padX, y + 17);
 }
 
@@ -184,55 +194,75 @@ export function renderScheduleImage({
   ctx.fillStyle = THEME.tableHeaderBg;
   roundRect(ctx, tableX + tablePad, headerStripY, tableW - tablePad * 2, 40, 8, true, false);
 
-  // columns (ชื่อ, รอบเกิด, ตายล่าสุด, รอบถัดไป)
-  const cx = [tableX + 40, tableX + 440, tableX + 660, tableX + 860, tableX + 990]; // + สถานะ
+  // ==== Daily Table header ====
+
+  // จัดระยะด้วย “ความกว้างคอลัมน์” ให้ไม่ชนกัน
+  const left = tableX + tablePad + 10;
+  const widths = {
+    name: 420,      // ชื่อ
+    respawn: 120,   // รอบเกิด
+    last: 190,      // เวลาตายล่าสุด
+    next: 200,      // เกิดรอบถัดไป
+    status: 100,    // สถานะ
+  };
+  // จุดวางข้อความ (ชิดซ้ายของแต่ละคอลัมน์)
+  const cx = {
+    name: left,
+    respawn: left + widths.name,
+    last:    left + widths.name + widths.respawn,
+    next:    left + widths.name + widths.respawn + widths.last,
+    status:  left + widths.name + widths.respawn + widths.last + widths.next,
+  };
 
   setFont(ctx, 16, true);
   ctx.fillStyle = THEME.tableHeaderText;
-  ctx.fillText('ชื่อบอส', cx[0], headerStripY + 26);
-  ctx.fillText('รอบเกิด', cx[1], headerStripY + 26);
-  ctx.fillText('เวลาตายล่าสุด', cx[2], headerStripY + 26);
-  ctx.fillText('เกิดรอบถัดไป', cx[3], headerStripY + 26);
-  ctx.fillText('สถานะ', cx[4], headerStripY + 26);
+  ctx.fillText('ชื่อบอส', cx.name, headerStripY + 26);
+  ctx.fillText('รอบเกิด', cx.respawn, headerStripY + 26);
+  ctx.fillText('เวลาตายล่าสุด', cx.last, headerStripY + 26);
+  ctx.fillText('เกิดรอบถัดไป', cx.next, headerStripY + 26);
+  ctx.fillText('สถานะ', cx.status, headerStripY + 26);
 
-  // rows
+  // ==== Daily rows ====
   let ry = headerStripY + 40;
   for (let i = 0; i < Math.max(1, daily.length); i++) {
     const d = daily[i];
     const isAlt = i % 2 === 0;
-    // row bg
+
     if (isAlt) {
       ctx.fillStyle = THEME.rowAlt;
       roundRect(ctx, tableX + tablePad, ry + 6, tableW - tablePad * 2, rowH - 12, 8, true, false);
     }
 
     if (d) {
-      // name
+      // ชื่อ (ตัดความยาวถ้าเกินคอลัมน์)
       setFont(ctx, 16, true);
       ctx.fillStyle = THEME.text;
-      ctx.fillText(d.name, cx[0], ry + 32);
+      drawTrimmed(ctx, d.name, cx.name, ry + 32, widths.name - 20);
 
-      // respawn hours badge
+      // รอบเกิด
       setFont(ctx, 14, true);
       ctx.fillStyle = THEME.badgeText;
-      drawChip(ctx, `${d.respawnHours} ชม.`, cx[1] - 4, ry + 12);
+      drawChip(ctx, `${d.respawnHours} ชม.`, cx.respawn - 4, ry + 12);
 
-      // last death
+      // เวลาตายล่าสุด
       setFont(ctx, 15, false);
       ctx.fillStyle = THEME.textSub;
-      ctx.fillText(d.lastDeath ?? '—', cx[2], ry + 32);
+      drawTrimmed(ctx, d.lastDeath ?? '—', cx.last, ry + 32, widths.last - 20);
 
-      // next spawn
+      // เกิดรอบถัดไป
       setFont(ctx, 15, true);
       ctx.fillStyle = d.nextSpawn ? THEME.ok : THEME.textDim;
-      ctx.fillText(d.nextSpawn ?? '—', cx[3], ry + 32);
+      drawTrimmed(ctx, d.nextSpawn ?? '—', cx.next, ry + 32, widths.next - 20);
 
-      // NEW: สถานะ
+      // สถานะ (เขียว=เกิด / แดง=รอเกิด) วาดแบบ pill กลางคอลัมน์
       const st = statusOf(d.nextSpawn);
-      drawStatusPill(ctx, st.label, cx[4] - 6, ry + 12, st.live);
+      setFont(ctx, 13, true);
+      const pillW = ctx.measureText(st.label).width + 20;
+      const pillX = cx.status + (widths.status - pillW) / 2;
+      drawStatusPill(ctx, st.label, Math.floor(pillX), ry + 12, st.live);
     }
 
-    // grid line
+    // เส้นคั่น
     ctx.strokeStyle = THEME.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -265,7 +295,7 @@ export function renderScheduleImage({
     if (f) {
       setFont(ctx, 18, true);
       ctx.fillStyle = THEME.text;
-      ctx.fillText(f.name, fx + 16, fy + 30);
+      drawTrimmed(ctx, f.name, fx + 16, fy + 30, cardW - 32 - 80); // ชื่อไม่ชน pill
 
       setFont(ctx, 14, true);
       ctx.fillStyle = f.nextSpawn ? THEME.ok : THEME.textDim;
@@ -290,7 +320,7 @@ export function renderScheduleImage({
         for (const s of slots) {
           // คำนวณความกว้างก่อนวาด เพื่อชิดขวา
           setFont(ctx, 13, true);
-          const pillW = ctx.measureText(st.label).width + 20; // padX*2
+          const pillW = ctx.measureText(st.label).width + 20;
           drawStatusPill(ctx, st.label, fx + cardW - pillW - 14, fy + 10, st.live);
 
           // slots เดิม…
@@ -373,4 +403,16 @@ function drawSlotBadge(ctx: SKRSContext2D, text: string, x: number, y: number) {
   setFont(ctx, 12, false);
   ctx.fillStyle = THEME.slotBadgeText;
   ctx.fillText(text, x + padX, y + 16);
+}
+
+function drawTrimmed(ctx: SKRSContext2D, text: string, x: number, y: number, maxW: number) {
+  if (ctx.measureText(text).width <= maxW) {
+    ctx.fillText(text, x, y);
+    return;
+  }
+  let s = text;
+  while (s.length > 1 && ctx.measureText(s + '…').width > maxW) {
+    s = s.slice(0, -1);
+  }
+  ctx.fillText(s + '…', x, y);
 }
