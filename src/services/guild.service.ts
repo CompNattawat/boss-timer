@@ -1,13 +1,19 @@
 // src/services/guild.service.ts
+import { ENV } from '../lib/env.js';
 import { prisma } from '../lib/prisma.js';
 
 /** สร้างหรือดึงระเบียนกิลด์ (platform+externalId เป็น unique) */
 export async function ensureGuild(discordGuildId: string) {
-    return prisma.guild.upsert({
+    const existing = await prisma.guild.findUnique({
       where: { platform_externalId: { platform: 'discord', externalId: discordGuildId } },
-      update: {},
-      // ✅ อย่าใส่ gameId เป็น '', ให้ปล่อยเป็น null
-      create: { platform: 'discord', externalId: discordGuildId, gameId: '' },
+    });
+    if (existing) return existing;
+  
+    const game = await prisma.game.findUnique({ where: { code: ENV.DEFAULT_GAME_CODE } });
+    if (!game) throw new Error(`DEFAULT_GAME_CODE "${ENV.DEFAULT_GAME_CODE}" not found`);
+  
+    return prisma.guild.create({
+      data: { platform: 'discord', externalId: discordGuildId, gameId: game.id },
     });
   }
   

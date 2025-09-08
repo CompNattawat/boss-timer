@@ -7,8 +7,14 @@ import { ENV } from '../lib/env.js';
 dayjs.extend(relativeTime);
 
 export async function buildScheduleEmbeds(gameCode?: string) {
+  const game = await prisma.game.findUnique({
+    where: { code: gameCode ?? ENV.DEFAULT_GAME_CODE },
+  });
+  
+  if (!game) throw new Error('Game not found');
+  
   const bosses = await prisma.boss.findMany({
-    where: { gameId: gameCode ?? ENV.DEFAULT_GAME_CODE },
+    where: { gameId: game.id },
     orderBy: { name: 'asc' },
   });
 
