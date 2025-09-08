@@ -4,6 +4,7 @@ import tz from 'dayjs/plugin/timezone.js';
 import utc from 'dayjs/plugin/utc.js';
 import cronParser from 'cron-parser';
 import { prisma } from '../lib/prisma.js';
+import { getNextPrevFromCron } from './schedule-image-data.js';
 
 dayjs.extend(utc);
 dayjs.extend(tz);
@@ -49,25 +50,6 @@ type Row = {
 
 function buildHeader(gameCode: string) {
   return `📅 ตารางบอส (${gameCode})`;
-}
-
-function getNextPrevFromCron(crons: { cron: string; tz?: string | null }[]) {
-  const now = new Date();
-  let next: Date | null = null;
-  let prev: Date | null = null;
-  for (const r of crons) {
-    try {
-      const it = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: now });
-      const n = it.next().toDate();
-      if (!next || n < next) next = n;
-    } catch {}
-    try {
-      const it2 = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: now });
-      const p = it2.prev().toDate();
-      if (!prev || p > prev) prev = p;
-    } catch {}
-  }
-  return { next, prev };
 }
 
 // แปลง daily bosses -> string table
@@ -154,32 +136,39 @@ export async function renderTablesSplit(gameCode: string): Promise<{daily: strin
       return ax - bx;
     });
 
-  // FIXED: มี fixed rule → หาเวลาเกิดถัดไปที่ใกล้ที่สุด แล้ว sort
+  // FIXED: มี fixed rule → ใช้ทั้ง next/prev เพื่อตัดสินใจ “ควรแสดงอะไร”
   const fixedRows: Row[] = bosses
-    .filter(b => rulesByBoss.has(b.id))
-    .map(b => {
-      const bossRules = rulesByBoss.get(b.id)!;
-      let nearest: Date | null = null;
-      for (const r of bossRules) {
-        try {
-          const n = cronParser.parseExpression(r.cron, { tz: r.tz || TZ }).next().toDate();
-          if (!nearest || n < nearest) nearest = n;
-        } catch { /* ignore invalid cron */ }
-      }
-      return {
-        name: b.name,
-        rhText: '—',
-        lastText: fmtDMYHM(b.lastDeathAt),
-        nextText: fmtDMYHM(nearest),
-        fixSlotsText: bossRules.map(r => cronToHuman(r.cron)).join(', '),
-        nextDate: nearest,
-      };
-    })
-    .sort((a, b) => {
-      const ax = a.nextDate ? +a.nextDate : Infinity;
-      const bx = b.nextDate ? +b.nextDate : Infinity;
-      return ax - bx;
-    });
+  .filter(b => rulesByBoss.has(b.id))
+  .map(b => {
+    const bossRules = rulesByBoss.get(b.id)!;
+
+    // หา next / prev ที่ถูกต้องตาม cron + TZ
+    const { next, prev } = getNextPrevFromCron(
+      bossRules.map(r => ({ cron: r.cron, tz: r.tz || TZ }))
+    );
+
+    // ถ้ายังไม่เคยอัปเดตตาย (หรืออัปเดตช้ากว่า prev)
+    // ให้โชว์ "prev" (ถือว่าเกิดไปแล้ว) แทน next
+    const lastDeath = b.lastDeathAt ? new Date(b.lastDeathAt) : null;
+    const shouldShowPrev =
+      !!prev && (!lastDeath || +lastDeath < +prev);
+
+    const displayDate = shouldShowPrev ? prev : next; // ใช้ค่านี้ทั้งแสดง/เรียง
+
+    return {
+      name: b.name,
+      rhText: '—',
+      lastText: fmtDMYHM(b.lastDeathAt),
+      nextText: fmtDMYHM(displayDate), // ถ้ายังไม่อัปเดต → จะแสดงเป็นเวลารอบก่อนหน้า
+      fixSlotsText: bossRules.map(r => cronToHuman(r.cron)).join(', '),
+      nextDate: displayDate ?? null,
+    };
+  })
+  .sort((a, b) => {
+    const ax = a.nextDate ? +a.nextDate : Infinity;
+    const bx = b.nextDate ? +b.nextDate : Infinity;
+    return ax - bx;
+  });
 
   const title = buildHeader(gameCode);
   const updated = `อัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YYYY HH:mm')}`;

@@ -6,6 +6,11 @@ import utc from 'dayjs/plugin/utc.js';
 import { prisma } from '../lib/prisma.js';
 
 dayjs.extend(utc); dayjs.extend(tz);
+
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
+dayjs.extend(isSameOrAfter);
+
+
 const TZ = 'Asia/Bangkok';
 const TH_DOW = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 
@@ -20,30 +25,48 @@ function cronToHuman(cron: string, tzLabel = TZ) {
   return dayText ? `${dayText} ${hh}:${mm}` : `${hh}:${mm}`;
 }
 
-function getNextPrevFromCron(crons: { cron: string; tz?: string | null }[]) {
-  const now = new Date();
+export function getNextPrevFromCron(
+  crons: { cron: string; tz?: string | null }[],
+  lastDeathAt?: Date | null,
+  now: Date = new Date()
+): { next: Date | null; prev: Date | null; live: boolean } {
   let next: Date | null = null;
   let prev: Date | null = null;
 
   for (const r of crons) {
+    const tz = r.tz || TZ;
+
+    // next (ถัดจาก "ตอนนี้")
     try {
-      const it = cronParser.parseExpression(r.cron, {
-        tz: r.tz || TZ,
-        currentDate: now,
-      });
+      const it = cronParser.parseExpression(r.cron, { tz, currentDate: now });
       const n = it.next().toDate();
       if (!next || n < next) next = n;
-    } catch {}
+    } catch { /* ignore */ }
+
+    // prev (ก่อน "ตอนนี้")
     try {
-      const it2 = cronParser.parseExpression(r.cron, {
-        tz: r.tz || TZ,
-        currentDate: now,
-      });
+      const it2 = cronParser.parseExpression(r.cron, { tz, currentDate: now });
       const p = it2.prev().toDate();
       if (!prev || p > prev) prev = p;
-    } catch {}
+    } catch { /* ignore */ }
   }
-  return { next, prev };
+
+  // ตัดสินสถานะจาก lastDeathAt เทียบกับ prev
+  // - ไม่มี prev (cron เพี้ยน) => live=false ปลอดภัยไว้ก่อน
+  // - ไม่มี lastDeathAt => ถ้าเลย prev มาแล้วให้ถือว่าเกิดแล้ว
+  // - มี lastDeathAt:
+  //     lastDeathAt < prev  => รอบ prev เกิดขึ้น "หลัง" เวลาตายที่รู้ => ควรเป็น "เกิดแล้ว"
+  //     lastDeathAt >= prev => มีการตายหลังเกิดล่าสุด => "รอเกิด" (จนถึง next)
+  let live = false;
+  if (prev) {
+    if (!lastDeathAt) {
+      live = true; // ยังไม่เคยบันทึกตาย แต่ผ่านรอบเกิดล่าสุดมาแล้ว ⇒ น่าจะเกิดอยู่
+    } else {
+      live = lastDeathAt < prev;
+    }
+  }
+
+  return { next, prev, live };
 }
 
 export async function buildScheduleImageInput(gameCode: string) {
@@ -85,28 +108,28 @@ export async function buildScheduleImageInput(gameCode: string) {
   for (const b of bosses) {
     const fixedRules = rulesByBoss.get(b.id) ?? [];
     const isFixed = fixedRules.length > 0;
-
     const showLast = b.lastDeathAt ?? undefined;
-    let forceLive = false;
-    let next: Date | undefined;
 
     if (isFixed) {
-      // หา nearest ตาม cron
-      for (const r of fixedRules) {
-        const it = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: new Date() });
-        const n = it.next().toDate();
-        if (!next || n < next) next = n;
-      }
-      // ถ้าไม่เคยมี lastDeath ให้ถือว่า “ถึงรอบนี้แล้ว” => เกิด
-      if (!showLast && next) {
-        forceLive = dayjs().tz(TZ).isSameOrAfter(dayjs(next).tz(TZ));
-      }
+      const { next, prev, live } = getNextPrevFromCron(
+        fixedRules.map(r => ({ cron: r.cron, tz: r.tz || TZ })),
+        showLast ?? null
+      );
+    
       fixed.push({
         name: b.name,
         lastDeath: showLast,
-        nextSpawn: next,
+        nextSpawn: next ?? undefined,
         slots: [...new Set(fixedRules.map(r => cronToHuman(r.cron, r.tz || TZ)))].slice(0, 3),
-        forceLive,
+        forceLive: live, // live = true แปลว่า “รอบเกิดล่าสุดเกิดแล้ว แต่ยังไม่กดตายใหม่”
+      });
+    }
+    else {
+      daily.push({
+        name: b.name,
+        respawnHours: b.respawnHours ?? 0,
+        lastDeath: showLast,
+        nextSpawn: b.nextSpawnAt ?? undefined,
       });
     }
   }

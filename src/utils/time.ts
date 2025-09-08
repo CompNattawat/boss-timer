@@ -6,7 +6,9 @@ dayjs.extend(utc); dayjs.extend(tz);
 
 const TZ = 'Asia/Bangkok';
 
-export function toDayjsSafe(v: unknown) {
+// ---------- converters ----------
+/** แปลง input เป็น dayjs อย่างปลอดภัย (รับทั้ง Date/สตริง/ว่าง) */
+export function toDayjs(v: unknown) {
   if (!v) return null;
   if (v instanceof Date) return dayjs(v);
   if (typeof v === 'string' || typeof v === 'number') {
@@ -17,6 +19,6 @@ export function toDayjsSafe(v: unknown) {
 }
 
 export function fmtDMYHM(v: unknown): string {
-  const d = toDayjsSafe(v);
+  const d = toDayjs(v);
   return d ? d.tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
 }

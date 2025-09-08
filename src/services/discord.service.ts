@@ -18,49 +18,73 @@ import { prisma } from '../lib/prisma.js';
 import { renderTablesSplit } from './table.service.js';
 import { renderScheduleImage } from '../graphics/renderScheduleImage.js';
 import { buildScheduleImageInput } from './schedule-image-data.js';
+import crypto from 'node:crypto';
 
 dayjs.extend(utc); dayjs.extend(tz);
 const DEFAULT_TZ = 'Asia/Bangkok';
 
 /** ส่งตารางแบบ “ข้อความใหม่” แล้วถามว่าจะสร้างรูปไหม */
 // ✅ ใช้ sendWithLimit ทั้งทุกกรณี + ไม่แตะ scheduleMessageId เดิม
-export async function postScheduleMessageForGuild(
-  guildId: string,
-  gameCode: string
-): Promise<void> {
-  if (!client.isReady()) {
-    await new Promise<void>((res) => client.once('ready', () => res()));
+const postingLocks = new Set<string>();
+const hashOf = (s: string) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+
+export async function postScheduleMessageForGuild(guildId: string, gameCode: string) {
+  // 1) mutex
+  const lockKey = `${guildId}:${gameCode}`;
+  if (postingLocks.has(lockKey)) return;
+  postingLocks.add(lockKey);
+  try {
+    if (!client.isReady()) {
+      await new Promise<void>(res => client.once('ready', () => res()));
+    }
+
+    const g = await prisma.guild.findUnique({
+      where: { platform_externalId: { platform: 'discord', externalId: guildId } },
+    });
+    if (!g?.scheduleChannelId) throw new Error(`Guild ${guildId} ไม่มี scheduleChannelId`);
+
+    const raw = await client.channels.fetch(g.scheduleChannelId);
+    if (!raw || !raw.isTextBased() || raw.isDMBased()) {
+      throw new Error(`Channel ${g.scheduleChannelId} ไม่ใช่ text channel`);
+    }
+    const channel = raw as GuildTextBasedChannel;
+
+    // 2) render & hash
+    const { daily, fixed } = await renderTablesSplit(gameCode);
+    const combined = [daily.trim(), fixed.trim()].filter(Boolean).join('\n\n');
+    if (!combined) return;
+
+    const hash = hashOf(combined);
+    // ถ้าตรงกับของเดิม => ข้าม
+    if ((g as any).scheduleLastHash === hash) return;
+
+    // ส่ง (รองรับ >2000 ตัว)
+    await sendWithLimit(channel as any, combined, `schedule_${gameCode}`);
+
+    // 3) เคลียร์ prompt เก่า แล้วส่ง prompt ใหม่
+    try {
+      const recent = await channel.messages.fetch({ limit: 10 });
+      const mine = recent.filter(m =>
+        m.author?.id === client.user?.id &&
+        m.content?.includes('ต้องการสร้างรูปภาพตารางสรุปด้วยไหม?')
+      );
+      for (const m of mine.values()) await m.delete().catch(() => {});
+    } catch {}
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`genimg:${g.id}:${gameCode}`).setLabel('สร้างรูปภาพตาราง').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`skipimg:${g.id}:${gameCode}`).setLabel('ไม่ต้อง').setStyle(ButtonStyle.Secondary),
+    );
+    await channel.send({ content: 'ต้องการสร้างรูปภาพตารางสรุปด้วยไหม?', components: [row] });
+
+    // บันทึก hash ล่าสุด
+    await prisma.guild.update({
+      where: { id: g.id },
+      data: { scheduleLastHash: hash }, // ต้องมีคอลัมน์นี้ใน schema
+    });
+  } finally {
+    postingLocks.delete(lockKey);
   }
-
-  const g = await prisma.guild.findUnique({
-    where: { platform_externalId: { platform: 'discord', externalId: guildId } },
-  });
-  if (!g?.scheduleChannelId) throw new Error(`Guild ${guildId} ไม่มี scheduleChannelId`);
-
-  const raw = await client.channels.fetch(g.scheduleChannelId);
-  if (!raw || !raw.isTextBased() || raw.isDMBased()) {
-    throw new Error(`Channel ${g?.scheduleChannelId} ไม่ใช่ text channel`);
-  }
-  const channel = raw as GuildTextBasedChannel;
-
-  // สร้างข้อความตาราง
-  const { daily, fixed } = await renderTablesSplit(gameCode);
-  const dailyMsg = daily.trim();
-  const fixedMsg = fixed.trim();
-
-  // เลือกโหมด (ENV > guild > default=combine)
-  const mode = resolvePostMode(g as any); // ยังไม่ใช้
-
-  const combined = [dailyMsg, fixedMsg].filter(Boolean).join('\n\n');
-  if (combined) await sendWithLimit(channel, combined, `schedule_${gameCode}`);
-
-  // ปุ่มสร้างรูป
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`genimg:${g.id}:${gameCode}`).setLabel('สร้างรูปภาพตาราง').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`skipimg:${g.id}:${gameCode}`).setLabel('ไม่ต้อง').setStyle(ButtonStyle.Secondary),
-  );
-
-  await channel.send({ content: 'ต้องการสร้างรูปภาพตารางสรุปด้วยไหม?', components: [row] });
 }
 
 /** เรียกใน startup เพื่อให้ปุ่มทำงาน */

@@ -10,6 +10,7 @@ import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc); dayjs.extend(tz);
 
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
+import { fmtDMYHM, toDayjs } from '../utils/time.js';
 dayjs.extend(isSameOrAfter);
 
 
@@ -103,54 +104,10 @@ const THEME = {
 };
 
 // ---- helpers (แทนของเดิมทั้งฟังก์ชัน) ----
-const TZ = 'Asia/Bangkok';
-
-// ---------- converters ----------
-/** แปลง input เป็น dayjs อย่างปลอดภัย (รับทั้ง Date/สตริง/ว่าง) */
-
-// รับ unknown แล้วพยายามแปลงเป็น dayjs | null เท่านั้น
-export function toDayjs(input: unknown): dayjs.Dayjs | null {
-  if (input == null) return null;
-  if (input instanceof Date) {
-    const d = dayjs(input);
-    return d.isValid() ? d : null;
-  }
-  if (typeof input === 'string') {
-    const s = input.trim();
-    if (!s || s === '-' || s === '—') return null;
-
-    // รองรับฟอร์แมตที่เราใช้จริง
-    const candidates = [
-      'YYYY-MM-DD HH:mm',
-      'DD/MM/YYYY HH:mm',
-      'DD/MM/YY HH:mm',
-      'YYYY/MM/DD HH:mm',
-      'YYYY-MM-DDTHH:mm:ssZ',
-      'YYYY-MM-DDTHH:mm:ss.SSSZ',
-    ];
-    for (const fmt of candidates) {
-      const d = dayjs(s, fmt, true);
-      if (d.isValid()) return d;
-    }
-    // fallback ให้ dayjs เดา (ถ้าเดาไม่ได้จะ invalid แล้วคืน null)
-    const d = dayjs(s);
-    return d.isValid() ? d : null;
-  }
-  return null;
-}
-
-export function fmtDMYHM(v: unknown): string {
-  const d = toDayjs(v);
-  return d ? d.tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
-}
-
-// เช็คสถานะ (live = ถึงเวลาแล้ว?) — รับ unknown ปลอดภัย
-export function statusOf(nextSpawn: unknown): { live: boolean; label: string } {
+function statusOf(nextSpawn?: string | Date | null) {
   const d = toDayjs(nextSpawn);
-  if (!d) return { live: false, label: 'รอข้อมูล' };
-  // ยังไม่ถึงเวลา => รอเกิด, ถึงเวลา/เลยแล้ว => เกิด
-  const now = dayjs().tz(TZ);
-  return now.isSameOrAfter(d.tz(TZ)) ? { live: true, label: 'เกิดแล้ว' } : { live: false, label: 'รอเกิด' };
+  if (!d) return { label: 'รอเกิด', live: false };   // ไม่มีเวลา → ถือว่ายังไม่เกิด
+  return dayjs().isAfter(d) ? { label: 'เกิด', live: true } : { label: 'รอเกิด', live: false };
 }
 
 function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
@@ -327,7 +284,7 @@ export function renderScheduleImage({
     ry += rowH;
   }
 
-  y = ry + 26;
+  y = ry + 36;
 
   // === Fixed Cards ===
   drawSectionHeader(ctx, 'Fixed-time Bosses (บอสรายเวลา)', 28, y);
