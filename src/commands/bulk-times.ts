@@ -230,18 +230,26 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
   
     return { total: rows.length, ok, fail, skipped, unknownNames, errors };
   }
-  
+
   function parseWhen(text: string, tz: string) {
     const s = text.trim();
-    // "HH:mm" => วันนี้
+  
+    // HH:mm => วันนี้
     if (/^\d{1,2}:\d{2}$/.test(s)) {
       const today = dayjs().tz(tz).format('DD/MM/YY');
       const d = dayjs.tz(`${today} ${s}`, 'DD/MM/YY HH:mm', tz);
       return d.isValid() ? d : null;
     }
-    // "DD/MM/YY HH:mm"
-    const d = dayjs.tz(s, 'DD/MM/YY HH:mm', tz);
-    return d.isValid() ? d : null;
+  
+    // ลอง parse แบบ DD/MM/YY HH:mm
+    let d = dayjs.tz(s, 'DD/MM/YY HH:mm', tz);
+    if (d.isValid()) return d;
+  
+    // ลอง parse แบบ DD/MM/YYYY HH:mm
+    d = dayjs.tz(s, 'DD/MM/YYYY HH:mm', tz);
+    if (d.isValid()) return d;
+  
+    return null;
   }
   
   // ถ้าเป็น daily (มี respawnHours) => next = death + hours
