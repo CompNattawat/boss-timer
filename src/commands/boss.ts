@@ -231,7 +231,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
     
       // อัปเดตตารางในแชนแนล
       await postScheduleMessageForGuild(guildId, gameCode);
-      return await safeReply(i,{ content: `รีเซ็ตเวลา **${boss.name}** แล้ว`, ephemeral: false });
+      return await safeReply(i,{ content: `รีเซ็ตเวลา **${boss.name}** แล้ว`, flags: MessageFlags.Ephemeral as number, });
     }
     
     
@@ -306,6 +306,6 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       await safeDefer(i, false);
 
       await postScheduleMessageForGuild(guildId, gameCode);
-      return await safeReply(i,{ content: 'อัปเดตตารางแล้ว', ephemeral: false });
+      return await safeReply(i,{ content: 'อัปเดตตารางแล้ว', flags: MessageFlags.Ephemeral as number, });
     }
   }

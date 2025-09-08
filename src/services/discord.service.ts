@@ -1,10 +1,26 @@
 // src/services/discord.service.ts
-import { Guild } from '@prisma/client';
-import { AttachmentBuilder, GuildTextBasedChannel } from 'discord.js';
+import {
+  MessageFlags,
+  ButtonBuilder,
+  ActionRowBuilder,
+  ButtonStyle,
+  GuildTextBasedChannel,
+  Client,
+} from 'discord.js';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+import tz from 'dayjs/plugin/timezone.js';
+
 import { client } from '../lib/client.js';
 import { prisma } from '../lib/prisma.js';
 import { renderTablesSplit } from './table.service.js';
+import { renderScheduleImage } from '../graphics/renderScheduleImage.js';
+import { buildScheduleImageInput } from './schedule-image-data.js';
 
+dayjs.extend(utc); dayjs.extend(tz);
+const DEFAULT_TZ = 'Asia/Bangkok';
+
+/** ส่งตารางแบบ “ข้อความใหม่” แล้วถามว่าจะสร้างรูปไหม */
 export async function postScheduleMessageForGuild(
   guildId: string,
   gameCode: string
@@ -13,7 +29,7 @@ export async function postScheduleMessageForGuild(
     await new Promise<void>((res) => client.once('ready', () => res()));
   }
 
-  // 1) ดึง guild config จาก DB
+  // 1) อ่านคอนฟิก guild
   const g = await prisma.guild.findUnique({
     where: { platform_externalId: { platform: 'discord', externalId: guildId } },
   });
@@ -21,70 +37,68 @@ export async function postScheduleMessageForGuild(
     throw new Error(`Guild ${guildId} ไม่มี scheduleChannelId`);
   }
 
-  // 2) fetch channel
+  // 2) หา channel
   const raw = await client.channels.fetch(g.scheduleChannelId);
   if (!raw || !raw.isTextBased() || raw.isDMBased()) {
     throw new Error(`Channel ${g.scheduleChannelId} ไม่ใช่ text channel`);
   }
   const channel = raw as GuildTextBasedChannel;
 
-  // 3) render ตาราง
+  // 3) render ตารางข้อความ
   const { daily, fixed } = await renderTablesSplit(gameCode);
 
-  // 4) ส่งข้อความใหม่ทุกครั้ง
-  await sendMessageWithFallback(g, channel, daily, `daily_${gameCode}`);
-  await sendMessageWithFallback(g, channel, fixed, `fixed_${gameCode}`);
+  // 4) ส่ง “ข้อความใหม่” 2 ข้อความ (daily + fixed) — ไม่แตะ scheduleMessageId เดิม
+  await channel.send({ content: daily });
+  await channel.send({ content: fixed });
+
+  // 5) ถามว่าจะสร้างรูปไหม (ปุ่ม)
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`genimg:${g.id}:${gameCode}`)
+      .setLabel('สร้างรูปภาพตาราง')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`skipimg:${g.id}:${gameCode}`)
+      .setLabel('ไม่ต้อง')
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  await channel.send({
+    content: 'ต้องการสร้างรูปภาพตารางสรุปด้วยไหม?',
+    components: [row],
+  });
 }
 
-/**
- * ส่งข้อความ ถ้ายาวเกิน 2000 → ส่งเป็นไฟล์ .txt แทน
- */
-async function sendMessageWithFallback(
-  g: Guild,
-  channel: GuildTextBasedChannel,
-  content: string,
-  filenameHint?: string
-) {
-  const MAX = 2000;
-  if (content.length > MAX) {
-    const file = new AttachmentBuilder(Buffer.from(content, 'utf8'), {
-      name: `${filenameHint || 'schedule'}.txt`,
-    });
-    if (g.scheduleMessageId) {
-      await channel.messages
-        .edit(g.scheduleMessageId, { content: `ตารางบอส (${filenameHint})`, files: [file] })
-        .catch(async () => {
-          const msg = await channel.send({ content: `ตารางบอส (${filenameHint})`, files: [file] });
-          await prisma.guild.update({
-            where: { id: g.id },
-            data: { scheduleMessageId: msg.id },
-          });
-        });
-    } else {
-      const msg = await channel.send({ content: `ตารางบอส (${filenameHint})`, files: [file] });
-      await prisma.guild.update({
-        where: { id: g.id },
-        data: { scheduleMessageId: msg.id },
-      });
+/** เรียกใน startup เพื่อให้ปุ่มทำงาน */
+export function registerScheduleImageButtons(c: Client) {
+  c.on('interactionCreate', async (i) => {
+    if (!i.isButton()) return;
+    const [kind, guildId, gameCode] = i.customId.split(':');
+    if (kind !== 'genimg' && kind !== 'skipimg') return;
+
+    try {
+      if (kind === 'skipimg') {
+        await i.reply({ content: 'โอเค ไม่สร้างรูป', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // genimg
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+      const input = await buildScheduleImageInput(gameCode);
+      const file = renderScheduleImage(input); // AttachmentBuilder
+
+      // โพสต์รูปลงช่องเดิมของปุ่ม (channel เดียวกับข้อความถาม)
+      await i.followUp({ files: [file] });
+
+      await i.editReply({ content: '✅ สร้างรูปภาพแล้ว', components: [] });
+    } catch (e) {
+      await i.editReply({ content: '❌ สร้างรูปภาพไม่สำเร็จ' });
+      console.error('generate schedule image failed:', e);
     }
-  } else {
-     // แก้ไขข้อความเดิมถ้ามี (ใช้ scheduleMessageId เดิมเพื่อไม่งอกโพสต์)
-     if (g.scheduleMessageId) {
-      // edit-in-place
-      await channel.messages.edit(g.scheduleMessageId, content).catch(async () => {
-        const msg = await channel.send(content);
-        await prisma.guild.update({
-          where: { id: g.id },
-          data: { scheduleMessageId: msg.id },
-        });
-      });
-    } else {
-      // ส่งใหม่ครั้งแรก
-      const msg = await channel.send(content);
-      await prisma.guild.update({
-        where: { id: g.id },
-        data: { scheduleMessageId: msg.id },
-      });
-    }
-  }
+  });
+}
+
+function formatTime(d: Date) {
+  return dayjs(d).tz(DEFAULT_TZ).format('YYYY-MM-DD HH:mm');
 }

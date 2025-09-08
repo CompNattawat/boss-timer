@@ -16,7 +16,13 @@ import { data as bulkBossData, execute as bulkBossExecute } from './commands/bul
 import { data as bulkTimesData, execute as bulkTimesExecute } from './commands/bulk-times.js';
 import { data as configData, execute as configExecute } from './commands/config.js';
 
+// ⭐ import registerScheduleImageButtons
+import { registerScheduleImageButtons } from './services/discord.service.js';
+
 const CMDS = [bossData, fixData, scheduleData, bulkBossData, bulkTimesData, configData];
+
+// เรียกเพื่อผูกปุ่มไว้กับ client
+registerScheduleImageButtons(client);
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`✅ Ready! Logged in as ${c.user.tag}`);
