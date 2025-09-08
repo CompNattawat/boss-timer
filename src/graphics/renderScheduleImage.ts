@@ -3,6 +3,7 @@ import { createCanvas, GlobalFonts, SKRSContext2D } from '@napi-rs/canvas';
 import { AttachmentBuilder } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
+import dayjs from 'dayjs';
 
 type DailyRow = {
   name: string;
@@ -24,6 +25,10 @@ export type ScheduleImageInput = {
   daily: DailyRow[];
   fixed: FixedRow[];
 };
+
+function getStatus(nextSpawn: Date): string {
+  return dayjs().isAfter(nextSpawn) ? 'เกิด' : 'รอเกิด';
+}
 
 export function registerThaiFonts() {
   const base = path.resolve('/app/fonts/Prompt');
@@ -84,6 +89,23 @@ const THEME = {
   slotBadgeBg: '#F3F4F6',
   slotBadgeText: '#374151',
 };
+
+function statusOf(next?: string) {
+  if (!next) return { label: 'รอเกิด', live: false };
+  const isLive = dayjs().isAfter(dayjs(next));
+  return { label: isLive ? 'เกิด' : 'รอเกิด', live: isLive };
+}
+
+function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
+  const padX = 10;
+  const h = 24;
+  setFont(ctx, 13, true);
+  const w = ctx.measureText(text).width + padX * 2;
+  ctx.fillStyle = live ? '#DCFCE7' /* green-100 */ : '#F3F4F6' /* gray-100 */;
+  roundRect(ctx, x, y, w, h, 12, true, false);
+  ctx.fillStyle = live ? THEME.okSoft : THEME.textDim;
+  ctx.fillText(text, x + padX, y + 17);
+}
 
 
 /* =========================
@@ -163,7 +185,7 @@ export function renderScheduleImage({
   roundRect(ctx, tableX + tablePad, headerStripY, tableW - tablePad * 2, 40, 8, true, false);
 
   // columns (ชื่อ, รอบเกิด, ตายล่าสุด, รอบถัดไป)
-  const cx = [tableX + 40, tableX + 460, tableX + 680, tableX + 880];
+  const cx = [tableX + 40, tableX + 440, tableX + 660, tableX + 860, tableX + 990]; // + สถานะ
 
   setFont(ctx, 16, true);
   ctx.fillStyle = THEME.tableHeaderText;
@@ -171,6 +193,7 @@ export function renderScheduleImage({
   ctx.fillText('รอบเกิด', cx[1], headerStripY + 26);
   ctx.fillText('เวลาตายล่าสุด', cx[2], headerStripY + 26);
   ctx.fillText('เกิดรอบถัดไป', cx[3], headerStripY + 26);
+  ctx.fillText('สถานะ', cx[4], headerStripY + 26);
 
   // rows
   let ry = headerStripY + 40;
@@ -203,6 +226,10 @@ export function renderScheduleImage({
       setFont(ctx, 15, true);
       ctx.fillStyle = d.nextSpawn ? THEME.ok : THEME.textDim;
       ctx.fillText(d.nextSpawn ?? '—', cx[3], ry + 32);
+
+      // NEW: สถานะ
+      const st = statusOf(d.nextSpawn);
+      drawStatusPill(ctx, st.label, cx[4] - 6, ry + 12, st.live);
     }
 
     // grid line
@@ -248,6 +275,9 @@ export function renderScheduleImage({
         fy + 56
       );
 
+      // NEW: สถานะมุมขวาบน
+      const st = statusOf(f.nextSpawn);
+
       // slot badges
       let bx = fx + 16;
       const by = fy + 74;
@@ -258,6 +288,12 @@ export function renderScheduleImage({
         ctx.fillText('-', bx, by);
       } else {
         for (const s of slots) {
+          // คำนวณความกว้างก่อนวาด เพื่อชิดขวา
+          setFont(ctx, 13, true);
+          const pillW = ctx.measureText(st.label).width + 20; // padX*2
+          drawStatusPill(ctx, st.label, fx + cardW - pillW - 14, fy + 10, st.live);
+
+          // slots เดิม…
           drawSlotBadge(ctx, s, bx, by - 14);
           bx += ctx.measureText(s).width + 8 + 14; // badge width + gap
           if (bx > fx + cardW - 80) break;
