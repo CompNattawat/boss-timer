@@ -4,6 +4,8 @@ import { AttachmentBuilder } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
 import dayjs from 'dayjs';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
+dayjs.extend(isSameOrAfter);
 
 type DailyRow = {
   name: string;
@@ -94,25 +96,22 @@ const THEME = {
 const TZ = 'Asia/Bangkok';
 
 function statusOf(nextSpawnStr?: string) {
-  // เคสว่าง/ขีด
   if (!nextSpawnStr || nextSpawnStr === '—') {
     return { label: 'รอเกิด', live: false };
   }
 
-  // รองรับหลายฟอร์แมต
   const formats = ['YYYY-MM-DD HH:mm', 'DD/MM/YYYY HH:mm', 'DD/MM/YY HH:mm'];
   let parsed: dayjs.Dayjs | null = null;
+
   for (const f of formats) {
     const d = dayjs.tz(nextSpawnStr, f, TZ);
     if (d.isValid()) { parsed = d; break; }
   }
-  if (!parsed) {
-    // กันพัง ถ้า parse ไม่ได้ให้ถือว่า "รอเกิด"
-    return { label: 'รอเกิด', live: false };
-  }
+
+  if (!parsed) return { label: 'รอเกิด', live: false };
 
   const now = dayjs().tz(TZ);
-  const live = !now.isBefore(parsed); // ถึง/เลยเวลา = "เกิด"
+  const live = now.isSameOrAfter(parsed);   // ✅ ใช้ plugin แล้ว
   return { label: live ? 'เกิด' : 'รอเกิด', live };
 }
 

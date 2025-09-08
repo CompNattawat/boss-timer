@@ -50,14 +50,19 @@ export async function postScheduleMessageForGuild(
   const dailyMsg = daily.trim();
   const fixedMsg = fixed.trim();
 
-   // 4) ส่ง “ข้อความใหม่” 2 ข้อความ (daily + fixed) — ไม่แตะ scheduleMessageId เดิม
-  if (dailyMsg && fixedMsg && dailyMsg !== fixedMsg) {
-    await channel.send({ content: dailyMsg });
-    await channel.send({ content: fixedMsg });
-  } else if (dailyMsg) {
-    await channel.send({ content: dailyMsg + '\n\n(ไม่มี/ซ้ำกับ Fixed-time)' });
-  } else if (fixedMsg) {
-    await channel.send({ content: fixedMsg });
+  // ✅ เลือก mode
+  const mode: 'combine' | 'split' = 'combine'; // <--- ปรับตรงนี้
+
+  if (mode === 'combine') {
+    // รวม daily + fixed
+    const combined = [dailyMsg, fixedMsg].filter(Boolean).join('\n\n');
+    if (combined) {
+      await channel.send({ content: combined });
+    }
+  } else {
+    // แยกเป็น 2 ข้อความ
+    if (dailyMsg) await channel.send({ content: dailyMsg });
+    if (fixedMsg) await channel.send({ content: fixedMsg });
   }
 
   // 5) ถามว่าจะสร้างรูปไหม (ปุ่ม)
