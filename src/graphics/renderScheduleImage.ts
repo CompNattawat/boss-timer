@@ -26,10 +26,6 @@ export type ScheduleImageInput = {
   fixed: FixedRow[];
 };
 
-function getStatus(nextSpawn: Date): string {
-  return dayjs().isAfter(nextSpawn) ? 'เกิด' : 'รอเกิด';
-}
-
 export function registerThaiFonts() {
   const base = path.resolve('/app/fonts/Prompt');
   const candidates: [string, string][] = [
@@ -95,26 +91,21 @@ const THEME = {
 };
 
 // ---- helpers (แทนของเดิมทั้งฟังก์ชัน) ----
-function statusOf(next?: string) {
-  if (!next) return { label: 'รอเกิด', live: false };
-  const isLive = dayjs().isAfter(dayjs(next));
-  return { label: isLive ? 'เกิด' : 'รอเกิด', live: isLive };
+function statusOf(nextSpawnStr?: string) {
+  if (!nextSpawnStr || nextSpawnStr === '—') return { label: 'รอเกิด', live: false };
+  const next = dayjs.tz(nextSpawnStr, 'YYYY-MM-DD HH:mm', 'Asia/Bangkok');
+  if (!next.isValid()) return { label: 'รอเกิด', live: false };
+  const live = !dayjs().tz('Asia/Bangkok').isBefore(next); // ถึง/เลยเวลา = เกิด
+  return { label: live ? 'เกิด' : 'รอเกิด', live };
 }
-function drawStatusPill(
-  ctx: SKRSContext2D,
-  text: string,
-  x: number,
-  y: number,
-  live: boolean
-) {
-  const padX = 10;
-  const h = 24;
-  setFont(ctx, 13, true);
-  const w = ctx.measureText(text).width + padX * 2;
-  ctx.fillStyle = live ? THEME.okBg : THEME.dangerBg;
+
+function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
+  const padX = 10, h = 26, w = ctx.measureText(text).width + padX * 2;
+  ctx.fillStyle = live ? '#DCFCE7' : '#FEE2E2'; // เขียวอ่อน/แดงอ่อน
   roundRect(ctx, x, y, w, h, 12, true, false);
-  ctx.fillStyle = live ? THEME.okSoft : THEME.danger;
-  ctx.fillText(text, x + padX, y + 17);
+  setFont(ctx, 13, true);
+  ctx.fillStyle = live ? '#059669' : '#DC2626'; // เขียวเข้ม/แดงเข้ม
+  ctx.fillText(text, x + padX, y + 18);
 }
 
 
@@ -264,10 +255,11 @@ export function renderScheduleImage({
 
       // สถานะ (เขียว=เกิด / แดง=รอเกิด) วาดแบบ pill กลางคอลัมน์
       const st = statusOf(d.nextSpawn);
+
       setFont(ctx, 13, true);
       const pillW = ctx.measureText(st.label).width + 20;
       const pillX = cx.status + (widths.status - pillW) / 2;
-      drawStatusPill(ctx, st.label, Math.floor(pillX), ry + 14, st.live); // << เดิม +12
+      drawStatusPill(ctx, st.label, Math.floor(pillX), ry + 14, st.live);
     }
 
     // เส้นคั่น
@@ -313,10 +305,29 @@ export function renderScheduleImage({
         fy + 56
       );
 
-      // NEW: สถานะมุมขวาบน
-      const st = statusOf(f.nextSpawn);
+      // --- ก่อนวาดภายในการ์ดแต่ละใบ ---
+      const st = statusOf(f.nextSpawn); // { label: 'รอเกิด'|'เกิด', live: boolean }
 
-      // slot badges
+      // วาดสถานะมุมขวาบนของการ์ด (วาดครั้งเดียวพอ!)
+      setFont(ctx, 13, true);
+      const pillW = ctx.measureText(st.label).width + 20;
+      drawStatusPill(ctx, st.label, fx + cardW - pillW - 14, fy + 10, st.live);
+
+      // แล้วค่อยวาดชื่อ/เวลารอบหน้า ตามเดิม
+      setFont(ctx, 18, true);
+      ctx.fillStyle = THEME.text;
+      ctx.fillText(f.name, fx + 16, fy + 30);
+
+      setFont(ctx, 14, true);
+      ctx.fillStyle = f.nextSpawn ? THEME.ok : THEME.textDim;
+      ctx.fillText(
+        f.nextSpawn ? `รอบหน้า: ${f.nextSpawn}` : 'รอบหน้า: -',
+        fx + 16,
+        fy + 56
+      );
+
+
+      // วาด slot badges (อยู่นอกเหนือ pill แล้ว)
       let bx = fx + 16;
       const by = fy + 74;
       setFont(ctx, 12, false);
@@ -326,14 +337,8 @@ export function renderScheduleImage({
         ctx.fillText('-', bx, by);
       } else {
         for (const s of slots) {
-          // คำนวณความกว้างก่อนวาด เพื่อชิดขวา
-          setFont(ctx, 13, true);
-          const pillW = ctx.measureText(st.label).width + 20;
-          drawStatusPill(ctx, st.label, fx + cardW - pillW - 14, fy + 10, st.live);
-
-          // slots เดิม…
           drawSlotBadge(ctx, s, bx, by - 14);
-          bx += ctx.measureText(s).width + 8 + 14; // badge width + gap
+          bx += ctx.measureText(s).width + 8 + 14;
           if (bx > fx + cardW - 80) break;
         }
       }
