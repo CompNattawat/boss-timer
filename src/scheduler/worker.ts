@@ -56,9 +56,14 @@ async function start() {
 
       const boss = await prisma.boss.findUnique({
         where: { id: bossId },
-        select: { gameId: true },
+        select: { gameId: true, nextSpawnAt: true },
       });
       if (!boss) return;
+
+      // ถ้าเวลาที่คิวเก็บไว้ไม่ตรงกับ DB ปัจจุบัน => ข้าม (งานเก่า)
+      if (!boss.nextSpawnAt || dayjs(boss.nextSpawnAt).toISOString() !== dayjs(nextSpawnISO).toISOString()) {
+        return;
+      }
 
       const text = `⏰ อีก 10 นาที **${bossName}** จะเกิด (${dayjs(nextSpawnISO).tz(TZ).format('DD/MM/YY HH:mm')})`;
       await broadcastToGameGuilds(boss.gameId, text);
@@ -76,9 +81,14 @@ async function start() {
 
       const boss = await prisma.boss.findUnique({
         where: { id: bossId },
-        select: { gameId: true },
+        select: { gameId: true, nextSpawnAt: true },
       });
       if (!boss) return;
+
+      // ถ้าเวลาที่คิวเก็บไว้ไม่ตรงกับ DB ปัจจุบัน => ข้าม (งานเก่า)
+      if (!boss.nextSpawnAt || dayjs(boss.nextSpawnAt).toISOString() !== dayjs(nextSpawnISO).toISOString()) {
+        return;
+      }
 
       const text = `🎯 **${bossName}** เกิดแล้ว (${dayjs(nextSpawnISO).tz(TZ).format('DD/MM/YY HH:mm')})`;
       await broadcastToGameGuilds(boss.gameId, text);

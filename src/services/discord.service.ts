@@ -49,15 +49,10 @@ export async function postScheduleMessageForGuild(
   const fixedMsg = fixed.trim();
 
   // เลือกโหมด (ENV > guild > default=combine)
-  const mode = resolvePostMode(g as any);
+  const mode = resolvePostMode(g as any); // ยังไม่ใช้
 
-  if (mode === 'combine') {
-    const combined = [dailyMsg, fixedMsg].filter(Boolean).join('\n\n');
-    if (combined) await sendWithLimit(channel, dailyMsg, `schedule_${gameCode}`);
-  } else {
-    if (dailyMsg) await sendWithLimit(channel, dailyMsg, `daily_${gameCode}`);
-    if (fixedMsg) await sendWithLimit(channel, fixedMsg, `fixed_${gameCode}`);
-  }
+  const combined = [dailyMsg, fixedMsg].filter(Boolean).join('\n\n');
+  if (combined) await sendWithLimit(channel, combined, `schedule_${gameCode}`);
 
   // ปุ่มสร้างรูป
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -69,41 +64,45 @@ export async function postScheduleMessageForGuild(
 }
 
 /** เรียกใน startup เพื่อให้ปุ่มทำงาน */
-// ✅ ปุ่ม: ใช้ flags (ephemeral) ถูกวิธี + กัน InteractionNotReplied
+// startup
 export function registerScheduleImageButtons(c: Client) {
   c.on('interactionCreate', async (i) => {
     if (!i.isButton()) return;
     const [kind, guildId, gameCode] = i.customId.split(':');
     if (kind !== 'genimg' && kind !== 'skipimg') return;
-  
+
     try {
       if (kind === 'skipimg') {
-        if (!i.replied && !i.deferred) {
+        // ถ้า interaction ยังไม่ถูก acknowledge
+        if (!i.deferred && !i.replied) {
           await i.reply({ content: 'โอเค ไม่สร้างรูป', flags: MessageFlags.Ephemeral as number });
+        } else {
+          await i.followUp({ content: 'โอเค ไม่สร้างรูป', flags: MessageFlags.Ephemeral as number });
         }
         return;
       }
-  
-      // genimg
-      if (!i.replied && !i.deferred) {
+
+      // ✅ genimg
+      if (!i.deferred && !i.replied) {
         await i.deferReply({ flags: MessageFlags.Ephemeral as number });
       }
-  
+
       const input = await buildScheduleImageInput(gameCode);
-      const file = renderScheduleImage(input);
-  
-      // ใช้ followUp ถ้าเคย defer แล้ว, ไม่งั้น reply
+      const file  = renderScheduleImage(input); // AttachmentBuilder
+
       if (i.deferred) {
-        await i.followUp({ files: [file] });
-        await i.editReply({ content: '✅ สร้างรูปภาพแล้ว', components: [] });
-      } else if (!i.replied) {
-        await i.reply({ files: [file] });
+        await i.editReply({ files: [file], content: '✅ สร้างรูปภาพแล้ว' });
+      } else if (i.replied) {
+        await i.followUp({ files: [file], flags: MessageFlags.Ephemeral as number });
+      } else {
+        await i.reply({ files: [file], flags: MessageFlags.Ephemeral as number });
       }
     } catch (e) {
-      // เผื่อมีเคส defer ไปแล้วแต่ error
-      if (i.deferred && !i.replied) {
-        await i.editReply({ content: '❌ สร้างรูปภาพไม่สำเร็จ' }).catch(() => {});
-      }
+      // ถ้า defer แล้ว ควรใช้ editReply; ถ้ายัง ให้ reply/followUp
+      const msg = '❌ สร้างรูปภาพไม่สำเร็จ';
+      if (i.deferred) await i.editReply({ content: msg }).catch(() => {});
+      else if (!i.replied) await i.reply({ content: msg, flags: MessageFlags.Ephemeral as number }).catch(() => {});
+      else await i.followUp({ content: msg, flags: MessageFlags.Ephemeral as number }).catch(() => {});
       console.error('generate schedule image failed:', e);
     }
   });

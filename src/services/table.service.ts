@@ -51,6 +51,25 @@ function buildHeader(gameCode: string) {
   return `📅 ตารางบอส (${gameCode})`;
 }
 
+function getNextPrevFromCron(crons: { cron: string; tz?: string | null }[]) {
+  const now = new Date();
+  let next: Date | null = null;
+  let prev: Date | null = null;
+  for (const r of crons) {
+    try {
+      const it = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: now });
+      const n = it.next().toDate();
+      if (!next || n < next) next = n;
+    } catch {}
+    try {
+      const it2 = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: now });
+      const p = it2.prev().toDate();
+      if (!prev || p > prev) prev = p;
+    } catch {}
+  }
+  return { next, prev };
+}
+
 // แปลง daily bosses -> string table
 function buildDailyTableRows(bosses: any[]): string {
   const COLS = { name: 16, rh: 5, last: 15, next: 16 };

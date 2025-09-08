@@ -13,17 +13,21 @@ import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
 dayjs.extend(isSameOrAfter);
 
 
+// ===== types =====
 type DailyRow = {
   name: string;
   respawnHours: number;
-  lastDeath?: string;
-  nextSpawn?: string;
+  lastDeath?: string | Date;   // <-- เปลี่ยนเป็น string | Date
+  nextSpawn?: string | Date;   // <-- เปลี่ยนเป็น string | Date
 };
 
+// หลัง
 type FixedRow = {
   name: string;
-  nextSpawn?: string;
+  lastDeath?: string | Date;   // เผื่อรับ Date มาด้วย
+  nextSpawn?: string | Date;
   slots: string[];
+  forceLive?: boolean;         // << ใช้ชี้บังคับสถานะ “เกิด”
 };
 
 export type ScheduleImageInput = {
@@ -146,7 +150,7 @@ export function statusOf(nextSpawn: unknown): { live: boolean; label: string } {
   if (!d) return { live: false, label: 'รอข้อมูล' };
   // ยังไม่ถึงเวลา => รอเกิด, ถึงเวลา/เลยแล้ว => เกิด
   const now = dayjs().tz(TZ);
-  return now.isSameOrAfter(d.tz(TZ)) ? { live: true, label: 'เกิด' } : { live: false, label: 'รอเกิด' };
+  return now.isSameOrAfter(d.tz(TZ)) ? { live: true, label: 'เกิดแล้ว' } : { live: false, label: 'รอเกิด' };
 }
 
 function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
@@ -356,7 +360,8 @@ export function renderScheduleImage({
       );
 
       // --- ก่อนวาดภายในการ์ดแต่ละใบ ---
-      const st = statusOf(f?.nextSpawn); // { label: 'รอเกิด'|'เกิด', live: boolean }
+      // เดิม: const st = statusOf(f.nextSpawn);
+      const st = f.forceLive ? { live: true, label: 'เกิดแล้ว' } : statusOf(f.nextSpawn);
 
       // วาดสถานะมุมขวาบนของการ์ด (วาดครั้งเดียวพอ!)
       setFont(ctx, 13, true);

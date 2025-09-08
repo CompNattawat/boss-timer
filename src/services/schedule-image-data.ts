@@ -1,19 +1,15 @@
 // src/services/schedule-image-data.ts
+import cronParser from 'cron-parser';
 import dayjs from 'dayjs';
 import tz from 'dayjs/plugin/timezone.js';
 import utc from 'dayjs/plugin/utc.js';
-import cronParser from 'cron-parser';
 import { prisma } from '../lib/prisma.js';
 
 dayjs.extend(utc); dayjs.extend(tz);
-
 const TZ = 'Asia/Bangkok';
 const TH_DOW = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 
-const fmtDMYHM = (d?: Date | null) =>
-  d ? dayjs(d).tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
-
-function cronToHuman(cron: string) {
+function cronToHuman(cron: string, tzLabel = TZ) {
   const [m, h, , , dow] = cron.trim().split(/\s+/);
   const hh = String(h).padStart(2, '0');
   const mm = String(m).padStart(2, '0');
@@ -22,6 +18,32 @@ function cronToHuman(cron: string) {
   if (d === 7) d = 0;
   const dayText = Number.isInteger(d) ? (TH_DOW[d] ?? '') : '';
   return dayText ? `${dayText} ${hh}:${mm}` : `${hh}:${mm}`;
+}
+
+function getNextPrevFromCron(crons: { cron: string; tz?: string | null }[]) {
+  const now = new Date();
+  let next: Date | null = null;
+  let prev: Date | null = null;
+
+  for (const r of crons) {
+    try {
+      const it = cronParser.parseExpression(r.cron, {
+        tz: r.tz || TZ,
+        currentDate: now,
+      });
+      const n = it.next().toDate();
+      if (!next || n < next) next = n;
+    } catch {}
+    try {
+      const it2 = cronParser.parseExpression(r.cron, {
+        tz: r.tz || TZ,
+        currentDate: now,
+      });
+      const p = it2.prev().toDate();
+      if (!prev || p > prev) prev = p;
+    } catch {}
+  }
+  return { next, prev };
 }
 
 export async function buildScheduleImageInput(gameCode: string) {
@@ -45,78 +67,53 @@ export async function buildScheduleImageInput(gameCode: string) {
     rulesByBoss.set(r.bossId, arr);
   }
 
-  // ---- เตรียม daily (ไม่มี fixed rule) พร้อม “คีย์เวลา” สำหรับเรียง
-  const dailyRaw = bosses
-    .filter(b => !(rulesByBoss.has(b.id)))
-    .map(b => {
-      const nextDate = b.nextSpawnAt ?? null;
-      return {
-        name: b.name,
-        respawnHours: b.respawnHours ?? 0,
-        lastDeathStr: fmtDMYHM(b.lastDeathAt),
-        nextSpawnStr: fmtDMYHM(nextDate),
-        _nextDate: nextDate as Date | null,
-      };
-    })
-    .sort((a, b) => {
-      const ax = a._nextDate ? +a._nextDate : Infinity;
-      const bx = b._nextDate ? +b._nextDate : Infinity;
-      return ax - bx;
-    });
+  const daily: Array<{
+    name: string;
+    respawnHours: number;
+    lastDeath?: string | Date;
+    nextSpawn?: string | Date;
+  }> = [];
 
-  // ---- เตรียม fixed (มี fixed rule) หา “รอบถัดไปที่ใกล้สุด” + เรียง
-  const fixedRaw = bosses
-    .filter(b => rulesByBoss.has(b.id))
-    .map(b => {
-      const fixedRules = rulesByBoss.get(b.id)!;
-      let nearest: Date | null = null;
-      const slotLabels: string[] = [];
+  const fixed: Array<{
+    name: string;
+    lastDeath?: string | Date;
+    nextSpawn?: string | Date;
+    slots: string[];
+    forceLive?: boolean; // << ใช้ชี้ว่าต้องแสดง “เกิดแล้ว” ถ้ายังไม่อัปเดต
+  }> = [];
 
+  for (const b of bosses) {
+    const fixedRules = rulesByBoss.get(b.id) ?? [];
+    const isFixed = fixedRules.length > 0;
+
+    const showLast = b.lastDeathAt ?? undefined;
+    let forceLive = false;
+    let next: Date | undefined;
+
+    if (isFixed) {
+      // หา nearest ตาม cron
       for (const r of fixedRules) {
-        try {
-          const it = cronParser.parseExpression(r.cron, {
-            tz: r.tz || TZ,
-            currentDate: new Date(),
-          });
-          const n = it.next().toDate();
-          if (!nearest || n < nearest) nearest = n;
-          slotLabels.push(cronToHuman(r.cron));
-        } catch { /* ignore bad cron */ }
+        const it = cronParser.parseExpression(r.cron, { tz: r.tz || TZ, currentDate: new Date() });
+        const n = it.next().toDate();
+        if (!next || n < next) next = n;
       }
-
-      // unique + limit 3
-      const slots = [...new Set(slotLabels)].slice(0, 3);
-
-      return {
+      // ถ้าไม่เคยมี lastDeath ให้ถือว่า “ถึงรอบนี้แล้ว” => เกิด
+      if (!showLast && next) {
+        forceLive = dayjs().tz(TZ).isSameOrAfter(dayjs(next).tz(TZ));
+      }
+      fixed.push({
         name: b.name,
-        nextSpawnStr: fmtDMYHM(nearest),
-        slots,
-        _nextDate: nearest as Date | null,
-      };
-    })
-    .sort((a, b) => {
-      const ax = a._nextDate ? +a._nextDate : Infinity;
-      const bx = b._nextDate ? +b._nextDate : Infinity;
-      return ax - bx;
-    });
-
-  // ---- map เป็นรูปแบบที่ renderer ต้องการ
-  const daily = dailyRaw.map(r => ({
-    name: r.name,
-    respawnHours: r.respawnHours,
-    lastDeath: r.lastDeathStr,               // DD/MM/YYYY HH:mm
-    nextSpawn: r.nextSpawnStr,               // DD/MM/YYYY HH:mm
-  }));
-
-  const fixed = fixedRaw.map(r => ({
-    name: r.name,
-    nextSpawn: r.nextSpawnStr,               // DD/MM/YYYY HH:mm
-    slots: r.slots,                          // ['จ. 18:00', ...]
-  }));
+        lastDeath: showLast,
+        nextSpawn: next,
+        slots: [...new Set(fixedRules.map(r => cronToHuman(r.cron, r.tz || TZ)))].slice(0, 3),
+        forceLive,
+      });
+    }
+  }
 
   return {
     title: `BOSS RESPAWN TIMER — ${gameCode}`,
-    subtitle: `อัปเดต: ${dayjs().tz(TZ).format('DD/MM/YYYY HH:mm')}`,
+    subtitle: `อัปเดต: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`,
     tzLabel: TZ,
     daily,
     fixed,
