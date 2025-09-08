@@ -5,7 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
-dayjs.extend(isSameOrAfter);
+import tz from 'dayjs/plugin/timezone.js';
+import utc from 'dayjs/plugin/utc.js';
+dayjs.extend(utc); dayjs.extend(tz); dayjs.extend(isSameOrAfter);
 
 type DailyRow = {
   name: string;
@@ -95,24 +97,45 @@ const THEME = {
 // ---- helpers (แทนของเดิมทั้งฟังก์ชัน) ----
 const TZ = 'Asia/Bangkok';
 
-function statusOf(nextSpawnStr?: string) {
-  if (!nextSpawnStr || nextSpawnStr === '—') {
-    return { label: 'รอเกิด', live: false };
+// ---------- converters ----------
+function toDayjs(v: unknown): dayjs.Dayjs | null {
+  if (!v) return null;
+  if (v instanceof Date) return dayjs(v);
+  if (typeof v === 'number') return dayjs(v);
+  if (typeof v === 'string') {
+    const s = v.trim();
+    // กันค่าสัญลักษณ์/ว่าง
+    if (!s || s === '-' || s === '—') return null;
+
+    // ลอง ISO ก่อน
+    let d = dayjs(s);
+    if (d.isValid()) return d;
+
+    // ลองฟอร์แมตที่เราใช้ส่งเข้ามาบ่อย
+    d = dayjs.tz(s, 'YYYY-MM-DD HH:mm', TZ);
+    if (d.isValid()) return d;
+
+    d = dayjs.tz(s, 'DD/MM/YY HH:mm', TZ);
+    if (d.isValid()) return d;
+
+    d = dayjs.tz(s, 'DD/MM/YYYY HH:mm', TZ);
+    if (d.isValid()) return d;
+
+    return null;
   }
+  return null;
+}
 
-  const formats = ['YYYY-MM-DD HH:mm', 'DD/MM/YYYY HH:mm', 'DD/MM/YY HH:mm'];
-  let parsed: dayjs.Dayjs | null = null;
+function fmtDMYHM(v: unknown): string {
+  const d = toDayjs(v);
+  return d ? d.tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
+}
 
-  for (const f of formats) {
-    const d = dayjs.tz(nextSpawnStr, f, TZ);
-    if (d.isValid()) { parsed = d; break; }
-  }
-
-  if (!parsed) return { label: 'รอเกิด', live: false };
-
+function statusOf(next: unknown): { label: 'เกิด' | 'รอเกิด' | '-'; live: boolean } {
+  const d = toDayjs(next);
+  if (!d) return { label: '-', live: false };
   const now = dayjs().tz(TZ);
-  const live = now.isSameOrAfter(parsed);   // ✅ ใช้ plugin แล้ว
-  return { label: live ? 'เกิด' : 'รอเกิด', live };
+  return now.isSameOrAfter(d) ? { label: 'เกิด', live: true } : { label: 'รอเกิด', live: false };
 }
 
 function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
@@ -262,12 +285,12 @@ export function renderScheduleImage({
       // เวลาตายล่าสุด
       setFont(ctx, 15, false);
       ctx.fillStyle = THEME.textSub;
-      drawTrimmed(ctx, d.lastDeath ?? '—', cx.last, ry + 32, widths.last - 20);
+      drawTrimmed(ctx, fmtDMYHM(d.lastDeath) ?? '—', cx.last, ry + 32, widths.last - 20);
 
       // เกิดรอบถัดไป
       setFont(ctx, 15, true);
       ctx.fillStyle = d.nextSpawn ? THEME.ok : THEME.textDim;
-      drawTrimmed(ctx, d.nextSpawn ?? '—', cx.next, ry + 32, widths.next - 20);
+      drawTrimmed(ctx, fmtDMYHM(d.nextSpawn) ?? '—', cx.next, ry + 32, widths.next - 20);
 
       // สถานะ (เขียว=เกิด / แดง=รอเกิด) วาดแบบ pill กลางคอลัมน์
       const st = statusOf(d.nextSpawn);

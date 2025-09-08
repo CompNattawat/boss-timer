@@ -27,6 +27,8 @@ model Guild {
 
   scheduleChannelId String?
   scheduleMessageId String?
+  schedulePostMode  String   @default("combine")
+  
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
