@@ -47,9 +47,18 @@ export async function postScheduleMessageForGuild(
   // 3) render ตารางข้อความ
   const { daily, fixed } = await renderTablesSplit(gameCode);
 
-  // 4) ส่ง “ข้อความใหม่” 2 ข้อความ (daily + fixed) — ไม่แตะ scheduleMessageId เดิม
-  await channel.send({ content: daily });
-  await channel.send({ content: fixed });
+  const dailyMsg = daily.trim();
+  const fixedMsg = fixed.trim();
+
+   // 4) ส่ง “ข้อความใหม่” 2 ข้อความ (daily + fixed) — ไม่แตะ scheduleMessageId เดิม
+  if (dailyMsg && fixedMsg && dailyMsg !== fixedMsg) {
+    await channel.send({ content: dailyMsg });
+    await channel.send({ content: fixedMsg });
+  } else if (dailyMsg) {
+    await channel.send({ content: dailyMsg + '\n\n(ไม่มี/ซ้ำกับ Fixed-time)' });
+  } else if (fixedMsg) {
+    await channel.send({ content: fixedMsg });
+  }
 
   // 5) ถามว่าจะสร้างรูปไหม (ปุ่ม)
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
