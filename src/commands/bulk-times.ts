@@ -13,7 +13,7 @@ import {
   import cronParser from 'cron-parser';
   dayjs.extend(utc); dayjs.extend(tz);
   
-  const DEFAULT_TZ = 'Asia/Bangkok';
+  import type { Prisma } from '@prisma/client';
 
   // helpers
 const optStr = (i: ChatInputCommandInteraction, name: string, required = false) =>
@@ -91,7 +91,7 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
       (results.unknownNames.length ? `\nไม่พบบอส: ${results.unknownNames.slice(0, 20).join(', ')}${results.unknownNames.length > 20 ? ' ...' : ''}\n` : '') +
       (results.errors.length ? `\nข้อผิดพลาด:\n- ${results.errors.slice(0, 5).join('\n- ')}${results.errors.length > 5 ? '\n...' : ''}` : '');
   
-    await safeReply(i, { content: report });
+    await i.editReply({ content: report });
   }
   
   /* -------------------------- core logic --------------------------- */
@@ -130,15 +130,11 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
     return rows;
   }
   
-  async function processRows(
-    rows: Row[],
-    opts: { apply: boolean; tz: string }
-  ) {
+  async function processRows(rows: Row[], opts: { apply: boolean; tz: string }) {
     let ok = 0, fail = 0, skipped = 0;
     const unknownNames: string[] = [];
     const errors: string[] = [];
   
-    // เตรียม cache เกม + บอส
     const gameCache = new Map<string, { id: string }>();
     const bossCache = new Map<string, { id: string; name: string; respawnHours: number | null }>();
   
@@ -152,36 +148,36 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
     };
   
     const findBoss = async (gameCode: string, name?: string) => {
-      if (!name) return null; // สำคัญ!
-    
+      if (!name) return null;
       const key = `${gameCode}::${name}`;
       if (bossCache.has(key)) return bossCache.get(key)!;
-    
+  
       const g = await getGame(gameCode);
       if (!g) return null;
-    
-      const where: any = { gameId: g.id, OR: [{ name }, { alias: { has: name } }] };
-      const b = await prisma.boss.findFirst({ where });
+  
+      const b = await prisma.boss.findFirst({
+        where: { gameId: g.id, OR: [{ name }, { alias: { has: name } }] },
+      });
       if (!b) return null;
-    
+  
       const rec = { id: b.id, name: b.name, respawnHours: b.respawnHours };
       bossCache.set(key, rec);
       return rec;
     };
   
-    const tx: any[] = [];
+    const tx: Prisma.PrismaPromise<any>[] = [];
+    const jobQueue: Array<() => Promise<unknown>> = [];        // เก็บงานแจ้งเตือนไว้ทำ “ทีหลัง”
   
     for (const r of rows) {
       try {
         const gameCode = r.game || 'L9';
-    
-        // validate ขั้นพื้นฐาน
+  
         if (!r.name) { skipped++; continue; }
         if (r.action !== 'reset' && !r.time) { skipped++; continue; }
-    
+  
         const boss = await findBoss(gameCode, r.name);
         if (!boss) { unknownNames.push(`${r.name}(${gameCode})`); fail++; continue; }
-    
+  
         if (r.action === 'reset') {
           if (opts.apply) {
             tx.push(prisma.boss.update({
@@ -191,10 +187,10 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
           }
           ok++; continue;
         }
-    
+  
         const parsed = parseWhen(r.time!, opts.tz);
         if (!parsed) { fail++; errors.push(`time ไม่ถูกต้อง: "${r.time}" (${r.name})`); continue; }
-    
+  
         if (r.action === 'death') {
           const next = await calcNextFromDeath(boss.id, boss.respawnHours, parsed, opts.tz);
           if (opts.apply) {
@@ -202,22 +198,25 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
               where: { id: boss.id },
               data: { lastDeathAt: parsed.toDate(), nextSpawnAt: next?.toDate() || null },
             }));
-            if (next) tx.push(scheduleJobs(boss.id, boss.name, next.toISOString()));
+            if (next) {
+              // เก็บไว้รันทีหลัง (นอก transaction)
+              jobQueue.push(() => scheduleJobs(boss.id, boss.name, next.toISOString()));
+            }
           }
           ok++; continue;
         }
-    
+  
         if (r.action === 'spawn') {
           if (opts.apply) {
             tx.push(prisma.boss.update({
               where: { id: boss.id },
               data: { nextSpawnAt: parsed.toDate() },
             }));
-            tx.push(scheduleJobs(boss.id, boss.name, parsed.toISOString()));
+            jobQueue.push(() => scheduleJobs(boss.id, boss.name, parsed.toISOString()));
           }
           ok++; continue;
         }
-    
+  
         skipped++;
       } catch (e: any) {
         fail++; errors.push(e?.message ?? String(e));
@@ -226,6 +225,10 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
   
     if (opts.apply && tx.length) {
       await prisma.$transaction(tx);
+      // รันงาน schedule หลัง DB commit แล้ว
+      for (const run of jobQueue) {
+        try { await run(); } catch (e) { /* กลืน error แจ้งเตือน เพื่อไม่ให้ล้มงานหลัก */ }
+      }
     }
   
     return { total: rows.length, ok, fail, skipped, unknownNames, errors };
