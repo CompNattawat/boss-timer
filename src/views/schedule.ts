@@ -6,6 +6,8 @@ import { ENV } from '../lib/env.js';
 
 dayjs.extend(relativeTime);
 
+const TZ = 'Asia/Bangkok';
+
 export async function buildScheduleEmbeds(gameCode?: string) {
   const game = await prisma.game.findUnique({
     where: { code: gameCode ?? ENV.DEFAULT_GAME_CODE },
@@ -33,10 +35,10 @@ export async function buildScheduleEmbeds(gameCode?: string) {
       : (b.lastDeathAt ? dayjs(b.lastDeathAt).add(b.respawnHours, 'hour') : null);
 
     const nextText = next
-      ? `${next.format('DD/MM HH:mm')} (${dayjs().to(next)})`
+      ? `${next.format('DD/MM/YYYY HH:mm')} (${dayjs().to(next)})`
       : '—';
 
-    const lastText = b.lastDeathAt ? dayjs(b.lastDeathAt).format('DD/MM HH:mm') : '—';
+    const lastText = b.lastDeathAt ? dayjs(b.lastDeathAt).tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
 
     return `• **${b.name}**\n   ↳ next: ${nextText}\n   ↳ last: ${lastText}`;
   });

@@ -163,7 +163,7 @@ export async function renderTablesSplit(gameCode: string): Promise<{daily: strin
     });
 
   const title = buildHeader(gameCode);
-  const updated = `อัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YY HH:mm')}`;
+  const updated = `อัปเดตล่าสุด: ${dayjs().tz(TZ).format('DD/MM/YYYY HH:mm')}`;
 
   return {
     daily: [title, updated, '', wrapBlock(buildDailyTableRows(dailyRows))].join('\n'),

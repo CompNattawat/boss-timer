@@ -91,11 +91,28 @@ const THEME = {
 };
 
 // ---- helpers (แทนของเดิมทั้งฟังก์ชัน) ----
+const TZ = 'Asia/Bangkok';
+
 function statusOf(nextSpawnStr?: string) {
-  if (!nextSpawnStr || nextSpawnStr === '—') return { label: 'รอเกิด', live: false };
-  const next = dayjs.tz(nextSpawnStr, 'YYYY-MM-DD HH:mm', 'Asia/Bangkok');
-  if (!next.isValid()) return { label: 'รอเกิด', live: false };
-  const live = !dayjs().tz('Asia/Bangkok').isBefore(next); // ถึง/เลยเวลา = เกิด
+  // เคสว่าง/ขีด
+  if (!nextSpawnStr || nextSpawnStr === '—') {
+    return { label: 'รอเกิด', live: false };
+  }
+
+  // รองรับหลายฟอร์แมต
+  const formats = ['YYYY-MM-DD HH:mm', 'DD/MM/YYYY HH:mm', 'DD/MM/YY HH:mm'];
+  let parsed: dayjs.Dayjs | null = null;
+  for (const f of formats) {
+    const d = dayjs.tz(nextSpawnStr, f, TZ);
+    if (d.isValid()) { parsed = d; break; }
+  }
+  if (!parsed) {
+    // กันพัง ถ้า parse ไม่ได้ให้ถือว่า "รอเกิด"
+    return { label: 'รอเกิด', live: false };
+  }
+
+  const now = dayjs().tz(TZ);
+  const live = !now.isBefore(parsed); // ถึง/เลยเวลา = "เกิด"
   return { label: live ? 'เกิด' : 'รอเกิด', live };
 }
 

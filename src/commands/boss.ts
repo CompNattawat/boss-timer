@@ -43,7 +43,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
     .addSubcommand(sc => sc.setName('death')
       .setDescription('บันทึกเวลาตาย (เวลาไทย) เช่น "07:26" หรือ "07:26 02/09/25"')
       .addStringOption(o => o.setName('name').setDescription('ชื่อบอส').setRequired(true))
-      .addStringOption(o => o.setName('time').setDescription('HH:mm [DD/MM/YY]').setRequired(true))
+      .addStringOption(o => o.setName('time').setDescription('HH:mm [DD/MM/YYYY]').setRequired(true))
       .addStringOption(o => o.setName('game').setDescription('โค้ดเกม'))
     )
     .addSubcommand(sc => sc.setName('reset')
@@ -160,8 +160,8 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
       const timeText = i.options.get('time', true).value as string;
 
       const now = dayjs().tz(TZ);
-      const [hm, dmy = now.format('DD/MM/YY')] = timeText.trim().split(/\s+/);
-      const deathLocal = dayjs.tz(`${dmy} ${hm}`, 'DD/MM/YY HH:mm', TZ);
+      const [hm, dmy = now.format('DD/MM/YYYY')] = timeText.trim().split(/\s+/);
+      const deathLocal = dayjs.tz(`${dmy} ${hm}`, 'DD/MM/YYYY HH:mm', TZ);
       // ✅ defer ไว้ก่อน ป้องกัน interaction timeout
       await safeDefer(i, false);
 
