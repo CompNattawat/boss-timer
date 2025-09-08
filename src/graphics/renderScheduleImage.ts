@@ -98,44 +98,45 @@ const THEME = {
 const TZ = 'Asia/Bangkok';
 
 // ---------- converters ----------
-function toDayjs(v: unknown): dayjs.Dayjs | null {
-  if (!v) return null;
-  if (v instanceof Date) return dayjs(v);
-  if (typeof v === 'number') return dayjs(v);
-  if (typeof v === 'string') {
-    const s = v.trim();
-    // กันค่าสัญลักษณ์/ว่าง
-    if (!s || s === '-' || s === '—') return null;
+/** แปลง input เป็น dayjs อย่างปลอดภัย (รับทั้ง Date/สตริง/ว่าง) */
+function toDayjs(input?: string | Date | null) {
+  if (!input) return null;
+  if (input instanceof Date) return dayjs(input).tz(TZ);
 
-    // ลอง ISO ก่อน
-    let d = dayjs(s);
+  const s = String(input).trim();
+  if (!s || s === '-' || s === '—') return null;
+
+  // รองรับหลายฟอร์แมตที่เราใช้จริง
+  const formats = [
+    'YYYY-MM-DD HH:mm',     // ใช้ใน nextSpawn (เดิม)
+    'DD/MM/YYYY HH:mm',     // ถ้าปรับให้โชว์เต็มในภาพ
+    'DD/MM/YY HH:mm',       // กันข้อมูลเก่า
+    'YYYY-MM-DDTHH:mm:ss[Z]',
+    'YYYY-MM-DDTHH:mm:ss.SSS[Z]',
+  ];
+
+  for (const f of formats) {
+    const d = dayjs.tz(s, f, TZ);   // strict
     if (d.isValid()) return d;
-
-    // ลองฟอร์แมตที่เราใช้ส่งเข้ามาบ่อย
-    d = dayjs.tz(s, 'YYYY-MM-DD HH:mm', TZ);
-    if (d.isValid()) return d;
-
-    d = dayjs.tz(s, 'DD/MM/YY HH:mm', TZ);
-    if (d.isValid()) return d;
-
-    d = dayjs.tz(s, 'DD/MM/YYYY HH:mm', TZ);
-    if (d.isValid()) return d;
-
-    return null;
   }
-  return null;
+
+  // fallback (กรณีเป็น Date string อื่น ๆ)
+  const d = dayjs(s);
+  return d.isValid() ? d.tz(TZ) : null;
 }
 
 function fmtDMYHM(v: unknown): string {
-  const d = toDayjs(v);
+  const d = toDayjs(v as string | Date | null | undefined);
   return d ? d.tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
 }
 
-function statusOf(next: unknown): { label: 'เกิด' | 'รอเกิด' | '-'; live: boolean } {
+/** คืน label + สีสถานะจากเวลาเกิดถัดไป */
+function statusOf(next?: string | Date) {
   const d = toDayjs(next);
-  if (!d) return { label: '-', live: false };
+  if (!d) return { label: 'รอเกิด', live: false };
   const now = dayjs().tz(TZ);
-  return now.isSameOrAfter(d) ? { label: 'เกิด', live: true } : { label: 'รอเกิด', live: false };
+  const live = !now.isBefore(d);          // now >= d
+  return { label: live ? 'เกิด' : 'รอเกิด', live };
 }
 
 function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
@@ -293,7 +294,7 @@ export function renderScheduleImage({
       drawTrimmed(ctx, fmtDMYHM(d.nextSpawn) ?? '—', cx.next, ry + 32, widths.next - 20);
 
       // สถานะ (เขียว=เกิด / แดง=รอเกิด) วาดแบบ pill กลางคอลัมน์
-      const st = statusOf(d.nextSpawn);
+      const st = statusOf(d?.nextSpawn);
 
       setFont(ctx, 13, true);
       const pillW = ctx.measureText(st.label).width + 20;
@@ -345,7 +346,7 @@ export function renderScheduleImage({
       );
 
       // --- ก่อนวาดภายในการ์ดแต่ละใบ ---
-      const st = statusOf(f.nextSpawn); // { label: 'รอเกิด'|'เกิด', live: boolean }
+      const st = statusOf(f?.nextSpawn); // { label: 'รอเกิด'|'เกิด', live: boolean }
 
       // วาดสถานะมุมขวาบนของการ์ด (วาดครั้งเดียวพอ!)
       setFont(ctx, 13, true);
