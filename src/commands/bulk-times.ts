@@ -97,20 +97,35 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
   /* -------------------------- core logic --------------------------- */
   
   function parseCsv(text: string): Row[] {
-    const lines = text.trim().split(/\r?\n/);
-    const head = lines.shift()!.split(',').map(s => s.trim().toLowerCase());
-    const idx = (k: string) => head.indexOf(k);
+    const clean = text.replace(/^\uFEFF/, ''); // strip BOM
+    const firstLine = clean.split(/\r?\n/, 1)[0] ?? '';
+    const delim = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
   
+    const lines = clean.trim().split(/\r?\n/);
+    const head = (lines.shift() ?? '')
+      .split(delim)
+      .map(s => s.trim().toLowerCase());
+  
+    const idx = (k: string) => head.indexOf(k);
     const rows: Row[] = [];
-    for (const ln of lines) {
-      if (!ln.trim()) continue;
-      const cols = ln.split(',').map(s => s.trim());
-      rows.push({
-        action: cols[idx('action')] as Row['action'],
-        name: cols[idx('name')],
-        time: cols[idx('time')] || undefined,
-        game: cols[idx('game')] || undefined,
-      });
+  
+    for (const raw of lines) {
+      const ln = raw.trim();
+      if (!ln) continue;
+  
+      // บรรทัดที่มีแต่ตัวคั่น เช่น ",,," หรือ ";;;"
+      if (/^([,;]\s*)+$/.test(ln)) continue;
+  
+      const cols = ln.split(delim).map(s => s.trim());
+      const action = cols[idx('action')]?.toLowerCase() as Row['action'] | undefined;
+      const name   = cols[idx('name')] || undefined;
+      const time   = cols[idx('time')] || undefined;
+      const game   = cols[idx('game')] || undefined;
+  
+      if (!action || !['death','spawn','reset'].includes(action)) continue;
+      if (!name) continue; // ต้องมีชื่อ
+  
+      rows.push({ action, name, time, game });
     }
     return rows;
   }
@@ -136,16 +151,19 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
       return gameCache.get(k) || null;
     };
   
-    const findBoss = async (gameCode: string, name: string) => {
+    const findBoss = async (gameCode: string, name?: string) => {
+      if (!name) return null; // สำคัญ!
+    
       const key = `${gameCode}::${name}`;
       if (bossCache.has(key)) return bossCache.get(key)!;
-  
+    
       const g = await getGame(gameCode);
       if (!g) return null;
-      const b = await prisma.boss.findFirst({
-        where: { gameId: g.id, OR: [{ name }, { alias: { has: name } }] },
-      });
+    
+      const where: any = { gameId: g.id, OR: [{ name }, { alias: { has: name } }] };
+      const b = await prisma.boss.findFirst({ where });
       if (!b) return null;
+    
       const rec = { id: b.id, name: b.name, respawnHours: b.respawnHours };
       bossCache.set(key, rec);
       return rec;
@@ -156,12 +174,14 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
     for (const r of rows) {
       try {
         const gameCode = r.game || 'L9';
+    
+        // validate ขั้นพื้นฐาน
+        if (!r.name) { skipped++; continue; }
+        if (r.action !== 'reset' && !r.time) { skipped++; continue; }
+    
         const boss = await findBoss(gameCode, r.name);
-        if (!boss) {
-          unknownNames.push(`${r.name}(${gameCode})`);
-          fail++; continue;
-        }
-  
+        if (!boss) { unknownNames.push(`${r.name}(${gameCode})`); fail++; continue; }
+    
         if (r.action === 'reset') {
           if (opts.apply) {
             tx.push(prisma.boss.update({
@@ -171,14 +191,10 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
           }
           ok++; continue;
         }
-  
-        // ต้องมีเวลา
-        if (!r.time) { skipped++; continue; }
-  
-        // parse เวลา (รองรับ "HH:mm" หรือ "DD/MM/YY HH:mm")
-        const parsed = parseWhen(r.time, opts.tz);
+    
+        const parsed = parseWhen(r.time!, opts.tz);
         if (!parsed) { fail++; errors.push(`time ไม่ถูกต้อง: "${r.time}" (${r.name})`); continue; }
-  
+    
         if (r.action === 'death') {
           const next = await calcNextFromDeath(boss.id, boss.respawnHours, parsed, opts.tz);
           if (opts.apply) {
@@ -190,7 +206,7 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
           }
           ok++; continue;
         }
-  
+    
         if (r.action === 'spawn') {
           if (opts.apply) {
             tx.push(prisma.boss.update({
@@ -201,7 +217,7 @@ const optAttachment = (i: ChatInputCommandInteraction, name: string, required = 
           }
           ok++; continue;
         }
-  
+    
         skipped++;
       } catch (e: any) {
         fail++; errors.push(e?.message ?? String(e));
