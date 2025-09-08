@@ -3,11 +3,15 @@ import { createCanvas, GlobalFonts, SKRSContext2D } from '@napi-rs/canvas';
 import { AttachmentBuilder } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
+
 import dayjs from 'dayjs';
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
 import tz from 'dayjs/plugin/timezone.js';
 import utc from 'dayjs/plugin/utc.js';
-dayjs.extend(utc); dayjs.extend(tz); dayjs.extend(isSameOrAfter);
+dayjs.extend(utc); dayjs.extend(tz);
+
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
+dayjs.extend(isSameOrAfter);
+
 
 type DailyRow = {
   name: string;
@@ -99,44 +103,50 @@ const TZ = 'Asia/Bangkok';
 
 // ---------- converters ----------
 /** แปลง input เป็น dayjs อย่างปลอดภัย (รับทั้ง Date/สตริง/ว่าง) */
-function toDayjs(input?: string | Date | null) {
-  if (!input) return null;
-  if (input instanceof Date) return dayjs(input).tz(TZ);
 
-  const s = String(input).trim();
-  if (!s || s === '-' || s === '—') return null;
-
-  // รองรับหลายฟอร์แมตที่เราใช้จริง
-  const formats = [
-    'YYYY-MM-DD HH:mm',     // ใช้ใน nextSpawn (เดิม)
-    'DD/MM/YYYY HH:mm',     // ถ้าปรับให้โชว์เต็มในภาพ
-    'DD/MM/YY HH:mm',       // กันข้อมูลเก่า
-    'YYYY-MM-DDTHH:mm:ss[Z]',
-    'YYYY-MM-DDTHH:mm:ss.SSS[Z]',
-  ];
-
-  for (const f of formats) {
-    const d = dayjs.tz(s, f, TZ);   // strict
-    if (d.isValid()) return d;
+// รับ unknown แล้วพยายามแปลงเป็น dayjs | null เท่านั้น
+export function toDayjs(input: unknown): dayjs.Dayjs | null {
+  if (input == null) return null;
+  if (input instanceof Date) {
+    const d = dayjs(input);
+    return d.isValid() ? d : null;
   }
+  if (typeof input === 'string') {
+    const s = input.trim();
+    if (!s || s === '-' || s === '—') return null;
 
-  // fallback (กรณีเป็น Date string อื่น ๆ)
-  const d = dayjs(s);
-  return d.isValid() ? d.tz(TZ) : null;
+    // รองรับฟอร์แมตที่เราใช้จริง
+    const candidates = [
+      'YYYY-MM-DD HH:mm',
+      'DD/MM/YYYY HH:mm',
+      'DD/MM/YY HH:mm',
+      'YYYY/MM/DD HH:mm',
+      'YYYY-MM-DDTHH:mm:ssZ',
+      'YYYY-MM-DDTHH:mm:ss.SSSZ',
+    ];
+    for (const fmt of candidates) {
+      const d = dayjs(s, fmt, true);
+      if (d.isValid()) return d;
+    }
+    // fallback ให้ dayjs เดา (ถ้าเดาไม่ได้จะ invalid แล้วคืน null)
+    const d = dayjs(s);
+    return d.isValid() ? d : null;
+  }
+  return null;
 }
 
-function fmtDMYHM(v: unknown): string {
-  const d = toDayjs(v as string | Date | null | undefined);
+export function fmtDMYHM(v: unknown): string {
+  const d = toDayjs(v);
   return d ? d.tz(TZ).format('DD/MM/YYYY HH:mm') : '—';
 }
 
-/** คืน label + สีสถานะจากเวลาเกิดถัดไป */
-function statusOf(next?: string | Date) {
-  const d = toDayjs(next);
-  if (!d) return { label: 'รอเกิด', live: false };
+// เช็คสถานะ (live = ถึงเวลาแล้ว?) — รับ unknown ปลอดภัย
+export function statusOf(nextSpawn: unknown): { live: boolean; label: string } {
+  const d = toDayjs(nextSpawn);
+  if (!d) return { live: false, label: 'รอข้อมูล' };
+  // ยังไม่ถึงเวลา => รอเกิด, ถึงเวลา/เลยแล้ว => เกิด
   const now = dayjs().tz(TZ);
-  const live = !now.isBefore(d);          // now >= d
-  return { label: live ? 'เกิด' : 'รอเกิด', live };
+  return now.isSameOrAfter(d.tz(TZ)) ? { live: true, label: 'เกิด' } : { live: false, label: 'รอเกิด' };
 }
 
 function drawStatusPill(ctx: SKRSContext2D, text: string, x: number, y: number, live: boolean) {
@@ -286,12 +296,12 @@ export function renderScheduleImage({
       // เวลาตายล่าสุด
       setFont(ctx, 15, false);
       ctx.fillStyle = THEME.textSub;
-      drawTrimmed(ctx, fmtDMYHM(d.lastDeath) ?? '—', cx.last, ry + 32, widths.last - 20);
+      drawTrimmed(ctx, fmtDMYHM(d.lastDeath), cx.last, ry + 32, widths.last - 20);
 
       // เกิดรอบถัดไป
       setFont(ctx, 15, true);
       ctx.fillStyle = d.nextSpawn ? THEME.ok : THEME.textDim;
-      drawTrimmed(ctx, fmtDMYHM(d.nextSpawn) ?? '—', cx.next, ry + 32, widths.next - 20);
+      drawTrimmed(ctx, fmtDMYHM(d.nextSpawn), cx.next, ry + 32, widths.next - 20);
 
       // สถานะ (เขียว=เกิด / แดง=รอเกิด) วาดแบบ pill กลางคอลัมน์
       const st = statusOf(d?.nextSpawn);

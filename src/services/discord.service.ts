@@ -53,7 +53,7 @@ export async function postScheduleMessageForGuild(
 
   if (mode === 'combine') {
     const combined = [dailyMsg, fixedMsg].filter(Boolean).join('\n\n');
-    if (combined) await sendWithLimit(channel, combined, `schedule_${gameCode}`);
+    if (combined) await sendWithLimit(channel, dailyMsg, `schedule_${gameCode}`);
   } else {
     if (dailyMsg) await sendWithLimit(channel, dailyMsg, `daily_${gameCode}`);
     if (fixedMsg) await sendWithLimit(channel, fixedMsg, `fixed_${gameCode}`);
@@ -75,29 +75,35 @@ export function registerScheduleImageButtons(c: Client) {
     if (!i.isButton()) return;
     const [kind, guildId, gameCode] = i.customId.split(':');
     if (kind !== 'genimg' && kind !== 'skipimg') return;
-
+  
     try {
       if (kind === 'skipimg') {
-        await i.reply({ content: 'โอเค ไม่สร้างรูป', flags: MessageFlags.Ephemeral as number });
+        if (!i.replied && !i.deferred) {
+          await i.reply({ content: 'โอเค ไม่สร้างรูป', flags: MessageFlags.Ephemeral as number });
+        }
         return;
       }
-
+  
       // genimg
-      await i.deferReply({ flags: MessageFlags.Ephemeral as number });
-
+      if (!i.replied && !i.deferred) {
+        await i.deferReply({ flags: MessageFlags.Ephemeral as number });
+      }
+  
       const input = await buildScheduleImageInput(gameCode);
       const file = renderScheduleImage(input);
-      await i.followUp({ files: [file] });   // โพสต์รูปลงช่องเดิม
-      await i.editReply({ content: '✅ สร้างรูปภาพแล้ว' });
+  
+      // ใช้ followUp ถ้าเคย defer แล้ว, ไม่งั้น reply
+      if (i.deferred) {
+        await i.followUp({ files: [file] });
+        await i.editReply({ content: '✅ สร้างรูปภาพแล้ว', components: [] });
+      } else if (!i.replied) {
+        await i.reply({ files: [file] });
+      }
     } catch (e) {
-      // ถ้า deferReply ไม่สำเร็จ i.editReply จะพัง → ลอง reply แบบ ephemeral แทน
-      try {
-        if (!i.replied && !i.deferred) {
-          await i.reply({ content: '❌ สร้างรูปภาพไม่สำเร็จ', flags: MessageFlags.Ephemeral as number });
-        } else {
-          await i.editReply({ content: '❌ สร้างรูปภาพไม่สำเร็จ' });
-        }
-      } catch {}
+      // เผื่อมีเคส defer ไปแล้วแต่ error
+      if (i.deferred && !i.replied) {
+        await i.editReply({ content: '❌ สร้างรูปภาพไม่สำเร็จ' }).catch(() => {});
+      }
       console.error('generate schedule image failed:', e);
     }
   });
