@@ -222,12 +222,21 @@ export function renderScheduleImage({
   ctx.fillText('เกิดรอบถัดไป', cx.next, headerStripY + 26);
   ctx.fillText('สถานะ', cx.status, headerStripY + 26);
 
-  // ==== Daily rows ====
-  let ry = headerStripY + 40;
+  // จัดหัวคอลัมน์ "สถานะ" ให้อยู่กึ่งกลางคอลัมน์
+  {
+    const prev = ctx.textAlign;
+    ctx.textAlign = 'center';
+    ctx.fillText('สถานะ', cx.status + widths.status / 2, headerStripY + 26);
+    ctx.textAlign = prev;
+  }
+
+  // ===== rows =====
+  // ขยับลงเพิ่ม 6–8px กันภาพติดหัวตาราง
+  let ry = headerStripY + 48;  // เดิม +40
   for (let i = 0; i < Math.max(1, daily.length); i++) {
     const d = daily[i];
     const isAlt = i % 2 === 0;
-
+  
     if (isAlt) {
       ctx.fillStyle = THEME.rowAlt;
       roundRect(ctx, tableX + tablePad, ry + 6, tableW - tablePad * 2, rowH - 12, 8, true, false);
@@ -259,7 +268,7 @@ export function renderScheduleImage({
       setFont(ctx, 13, true);
       const pillW = ctx.measureText(st.label).width + 20;
       const pillX = cx.status + (widths.status - pillW) / 2;
-      drawStatusPill(ctx, st.label, Math.floor(pillX), ry + 12, st.live);
+      drawStatusPill(ctx, st.label, Math.floor(pillX), ry + 14, st.live); // << เดิม +12
     }
 
     // เส้นคั่น
