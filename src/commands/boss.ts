@@ -194,7 +194,7 @@ import { safeDefer, safeReply } from '../lib/interaction.js';
 
       return await safeReply(i,{
         content: `บันทึกตาย **${boss.name}** เวลา ${deathLocal.format('DD/MM/YY HH:mm')} แล้ว\nรอบเกิดถัดไป: ${dayjs(next).tz(TZ).format('DD/MM/YY HH:mm')}`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral as number,
       });
     }
 

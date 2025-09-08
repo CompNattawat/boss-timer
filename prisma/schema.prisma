@@ -18,16 +18,19 @@ model Game {
 }
 
 model Guild {
-  id                 String   @id @default(cuid())
-  platform           String
-  externalId         String
-  game               Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  gameId             String
-  scheduleChannelId  String?
-  scheduleMessageId  String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt // << เพิ่มบรรทัดนี้
-  @@unique([platform, externalId])
+  id                String   @id @default(uuid())
+  platform          String
+  externalId        String
+  // ทำให้เป็น nullable
+  gameId            String?   
+  game              Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  scheduleChannelId String?
+  scheduleMessageId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([platform, externalId], name: "platform_externalId")
 }
 
 model Boss {

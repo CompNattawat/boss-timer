@@ -41,12 +41,12 @@ import { ensureGuild, setScheduleChannel } from '../services/guild.service.js';
   export async function execute(i: ChatInputCommandInteraction) {
     // ต้องอยู่ในกิลด์เท่านั้น
     if (!i.inGuild() || !i.guildId) {
-      return i.reply({ content: 'คำสั่งนี้ใช้ได้เฉพาะในเซิร์ฟเวอร์เท่านั้น', ephemeral: true });
+      return i.reply({ content: 'คำสั่งนี้ใช้ได้เฉพาะในเซิร์ฟเวอร์เท่านั้น', flags: MessageFlags.Ephemeral as number });
     }
   
     // เช็คสิทธิ์แอดมินเซิร์ฟเวอร์
     if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-      return i.reply({ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', ephemeral: true });
+      return i.reply({ content: 'ต้องเป็นแอดมินเซิร์ฟเวอร์', flags: MessageFlags.Ephemeral as number});
     }
   
     const sub = i.options.getSubcommand();

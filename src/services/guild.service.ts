@@ -2,19 +2,32 @@
 import { prisma } from '../lib/prisma.js';
 
 /** สร้างหรือดึงระเบียนกิลด์ (platform+externalId เป็น unique) */
-export async function ensureGuild(guildId: string) {
-  return prisma.guild.upsert({
-    where: { platform_externalId: { platform: 'discord', externalId: guildId } },
-    update: {},
-    create: {
-      platform: 'discord',
-      externalId: guildId,
-      gameId: '',
-      scheduleChannelId: null,
-      scheduleMessageId: null,
-    },
-  });
-}
+export async function ensureGuild(discordGuildId: string) {
+    return prisma.guild.upsert({
+      where: { platform_externalId: { platform: 'discord', externalId: discordGuildId } },
+      update: {},
+      // ✅ อย่าใส่ gameId เป็น '', ให้ปล่อยเป็น null
+      create: { platform: 'discord', externalId: discordGuildId, gameId: '' },
+    });
+  }
+  
+  export async function attachGameByCode(discordGuildId: string, gameCode: string) {
+    const game = await prisma.game.findUnique({ where: { code: gameCode } });
+    if (!game) throw new Error(`Game code "${gameCode}" not found`);
+    await ensureGuild(discordGuildId);
+    return prisma.guild.update({
+      where: { platform_externalId: { platform: 'discord', externalId: discordGuildId } },
+      data: { gameId: game.id },
+    });
+  }
+  
+  export async function getGuildOrThrow(discordGuildId: string) {
+    const g = await prisma.guild.findUnique({
+      where: { platform_externalId: { platform: 'discord', externalId: discordGuildId } },
+    });
+    if (!g) throw new Error(`Guild ${discordGuildId} not found`);
+    return g;
+  }
 
 /** ดึงกิลด์ ถ้าไม่เจอให้คืน null (ไม่สร้างใหม่) */
 export function getGuild(guildId: string) {
@@ -29,13 +42,13 @@ export function getOrCreateGuild(guildId: string) {
 }
 
 /** ตั้งค่าช่องสำหรับโพสต์ตาราง และล้าง messageId เก่าเพื่อกันสับสน */
-export async function setScheduleChannel(guildId: string, channelId: string) {
-  const g = await ensureGuild(guildId);
-  await prisma.guild.update({
-    where: { id: g.id },
-    data: { scheduleChannelId: channelId, scheduleMessageId: null },
-  });
-}
+export async function setScheduleChannel(discordGuildId: string, channelId: string) {
+    await ensureGuild(discordGuildId);
+    return prisma.guild.update({
+      where: { platform_externalId: { platform: 'discord', externalId: discordGuildId } },
+      data: { scheduleChannelId: channelId, scheduleMessageId: null },
+    });
+  }
 
 /** บันทึก message id ของตารางล่าสุด (ไว้แก้ไขทับ) */
 export async function setScheduleMessage(guildId: string, messageId: string) {

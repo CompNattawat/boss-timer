@@ -1,5 +1,10 @@
 // src/main.ts
-import { REST, Routes, Events } from 'discord.js';
+import { 
+  REST,
+  Routes,
+  Events,
+  MessageFlags,
+} from 'discord.js';
 import { client } from './lib/client.js';
 import { ENV } from './lib/env.js';
 
@@ -61,12 +66,12 @@ client.on('interactionCreate', async (i) => {
       case bulkTimesData.name:return bulkTimesExecute(i);
       case configData.name:   return configExecute(i);
       default:
-        return i.reply({ content: 'ไม่พบคำสั่งนี้แล้ว ลองใหม่อีกครั้ง', ephemeral: true }).catch(() => {});
+        return i.reply({ content: 'ไม่พบคำสั่งนี้แล้ว ลองใหม่อีกครั้ง', flags: MessageFlags.Ephemeral as number }).catch(() => {});
     }
   } catch (err) {
     console.error('⚠️ interaction error:', err);
     if (!i.replied && !i.deferred) {
-      await i.reply({ content: 'เกิดข้อผิดพลาด', ephemeral: true }).catch(() => {});
+      await i.reply({ content: 'เกิดข้อผิดพลาด', flags: MessageFlags.Ephemeral as number }).catch(() => {});
     }
   }
 });

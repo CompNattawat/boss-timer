@@ -3,6 +3,7 @@ import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   AttachmentBuilder,
+  MessageFlags,
 } from 'discord.js';
 import { safeDefer, safeReply } from '../lib/interaction.js';
 import { renderTablesSplit } from '../services/table.service.js';
@@ -33,7 +34,7 @@ export async function execute(i: ChatInputCommandInteraction) {
     if (!i.inGuild() || !i.guildId) {
       return await safeReply(i, {
         content: 'คำสั่งนี้ใช้ได้เฉพาะในเซิร์ฟเวอร์เท่านั้น',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral as number,
       });
     }
 
@@ -47,7 +48,7 @@ export async function execute(i: ChatInputCommandInteraction) {
     if (!guild?.scheduleChannelId) {
       return await safeReply(i, {
         content: 'ยังไม่ได้ตั้งค่าช่องตาราง — ใช้คำสั่ง `/config channel channel:#ช่องตาราง` ก่อน',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral as number,
       });
     }
 
@@ -55,7 +56,7 @@ export async function execute(i: ChatInputCommandInteraction) {
     if (i.channelId !== guild.scheduleChannelId) {
       return await safeReply(i, {
         content: `คำสั่งนี้ใช้ได้เฉพาะในช่องตาราง <#${guild.scheduleChannelId}> เท่านั้น`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral as number,
       });
     }
 
