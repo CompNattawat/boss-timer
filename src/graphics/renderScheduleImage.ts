@@ -220,7 +220,6 @@ export function renderScheduleImage({
   ctx.fillText('รอบเกิด', cx.respawn, headerStripY + 26);
   ctx.fillText('เวลาตายล่าสุด', cx.last, headerStripY + 26);
   ctx.fillText('เกิดรอบถัดไป', cx.next, headerStripY + 26);
-  ctx.fillText('สถานะ', cx.status, headerStripY + 26);
 
   // จัดหัวคอลัมน์ "สถานะ" ให้อยู่กึ่งกลางคอลัมน์
   {
